@@ -4,7 +4,8 @@ Lightweight site testing and health assessment for PanDA processing
 resources, written for ePIC but as an agnostic tool: continuous
 functional probing of the distributed sites, automated exclusion and
 recovery acting through native PanDA mechanisms, and a live record of
-site state and capability.
+site state and capability. Its [design](docs/DESIGN.md) has been laid out,
+implementation to come. 
 
 The role is in part the one HammerCloud has filled for ATLAS:
 site health testing as input to exclusion and recovery, and dynamic
