@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+{# Dev stand-in for the swf-monitor base template: title/content blocks, #}
+{# readable dark styling, house table classes rendered plainly. #}
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{% block title %}canary dev{% endblock %}</title>
+  <style>
+    body { background: #1e1e1e; color: #e0e0e0;
+           font: 16px/1.5 system-ui, sans-serif; margin: 1.5rem; }
+    h2, h4 { color: #fff; }
+    .text-muted { color: #aaa; }
+    table { border-collapse: collapse; margin: .5rem 0; }
+    th, td { border: 1px solid #555; padding: .35rem .6rem; }
+    th { background: #2c2c2c; }
+    code { color: #9cdcfe; }
+    [class$="_fill"] { color: #0a0a0a; }
+  </style>
+</head>
+<body>
+  <div style="border-bottom:1px solid #444; padding-bottom:.5rem;
+              margin-bottom:1rem;">swf-monitor dev stand-in · System ▾ · Canary</div>
+  {% block content %}{% endblock %}
+</body>
+</html>

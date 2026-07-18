@@ -41,6 +41,57 @@ of the hosted deployment.
   projections through the snapper-ai publication helper in the same
   runtime (PLAN.md increment 7).
 
+## Canary page
+
+The packaged app serves the Canary page (`canary.store.views`,
+templates under `canary/`), mounted in the System pulldown of the
+swf-monitor navigation. It is public read-only, matching the System
+Status page. The installation adds:
+
+- `canary.store` to `INSTALLED_APPS`;
+- `path('canary/', include('canary.store.urls'))` in the URL
+  configuration;
+- a `System` pulldown entry
+  (`<a href="{% url 'canary:canary_page' %}">Canary</a>`) in the base
+  template, with `active_nav` wiring;
+- the canary health fills (healthy, suspect, excluded, recovering,
+  unknown), carried page-scoped until promoted to
+  `state-colors.css`.
+
+Page development outside the platform uses `scripts/webdev.py`, which
+supplies stand-ins for the base template and `swf_fmt` filters
+(`scripts/devweb/`); the hosted runtime never installs the stand-ins.
+
+## Bootstrap sequence
+
+The platform-side steps, on the swf-testbed host, in order:
+
+1. Clone `BNLNPPS/site-canary` into the workspace beside the swf
+   repositories and install it into the shared venv:
+   `pip install -e '.[store]'`.
+2. Verify the assessor's accounting query against the live BNL
+   instance with a read-only `CANARY_PANDA_DSN`: run
+   `canary assess --panda`, compare with the July 2026 profile in
+   PANDA_USER_JOBS.md, and correct the query here if the live schema
+   differs. Export a snapshot (`dump_snapshot`) for development use
+   elsewhere.
+3. Install the store into swf-monitor: `canary.store` in
+   `INSTALLED_APPS`, migrate (`canary_*` tables in `swfdb`).
+4. Mount the Canary page: URL include, System pulldown entry,
+   `active_nav` wiring, canary health fills promoted to
+   `state-colors.css`; smoke-check page content after deploy.
+5. Stand up the assessor cadence as a supervised agent in the
+   prod-ops pattern, writing passive samples on the configured
+   interval.
+6. First real landing: run `canary landing` on a BNL worker or
+   interactive node, ingest it, and confirm the map starts with a
+   real site.
+7. Continue with PLAN.md increments 6–9 (policy, AI surface,
+   actuation and probes, rider).
+
+Development-only pieces never deploy: `scripts/devweb/`,
+`scripts/webdev.py`, and the local development database.
+
 ## Open decisions
 
 Named before first production writes, to be settled with the platform
@@ -56,6 +107,4 @@ deployment:
 - direct-database vs REST publication for platform-resident canary
   agents;
 - retention policy for landing reports — the map spine is compact,
-  the report stream accumulates;
-- Canary page visibility (the page mounts in the System pulldown of
-  the swf-monitor navigation).
+  the report stream accumulates.

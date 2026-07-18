@@ -129,3 +129,23 @@ verification against the BNL instance (SWF_INTEGRATION.md).
 for the core instrument (`njobs`, `wait_median_s`, `wait_p90_s`,
 `failure_rate`), the remainder in `metrics`. Queues are created on
 first sight, site unset until the PanDA-configuration mapping arrives.
+
+## Canary page
+
+`canary.store.views.canary_page`, template
+`canary/canary_page.html`, mounted in the System pulldown of the
+swf-monitor navigation ([SWF_INTEGRATION.md](SWF_INTEGRATION.md)).
+Public read-only, matching the System Status page. Three sections,
+all house-convention static tables (`swf-sortable`, `swf_fmt`
+timestamps, colored state cells): sites (status, environment and
+landing counts, platforms, first/last landing), node environments
+(fingerprint, platform facts, GPU, landing census, last seen), and
+queues (status, latest passive sample: jobs, wait median and 90th
+percentile, failure rate, low-stats flag, window end). Canary health
+states carry BigMon-palette fill classes, page-scoped until promoted
+to `state-colors.css`.
+
+Development outside the platform: `scripts/webdev.py check|runserver`
+renders the page against the `CANARY_DB_*` store using the
+`scripts/devweb/` stand-ins for the base template and `swf_fmt`
+filters. The stand-ins are dev-only and never installed hosted.

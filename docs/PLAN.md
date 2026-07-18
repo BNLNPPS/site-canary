@@ -71,7 +71,7 @@ No actuation. The snapshot source decouples development from the PanDA
 database; verification of the live source and the cadenced run are
 platform-side steps.
 
-### 5. Canary page
+### 5. Canary page (done)
 
 The Canary page, in the System pulldown of the swf-monitor navigation:
 the landscape map at site and node level, passive samples, and health

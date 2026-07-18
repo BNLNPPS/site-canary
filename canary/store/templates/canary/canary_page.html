@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% load swf_fmt %}
+
+{% block title %}Canary — SWF Monitor{% endblock %}
+
+{% block content %}
+<style>
+/* Canary health states on the BigMon fill palette. */
+.healthy_fill { color:black; background-color:#96ca69 !important; }
+.suspect_fill { color:black; background-color:#FFE38E !important; }
+.excluded_fill { color:black; background-color:#FFABA2 !important; }
+.recovering_fill { color:black; background-color:#C7E9A9 !important; }
+.unknown_fill { color:black; background-color:#d9d9d9 !important; }
+</style>
+<div class="container-fluid mt-3">
+  <h2>Canary</h2>
+  <p class="text-muted">Site health and capability: the landscape map,
+  passive assessment, and health states.</p>
+
+  <h4 class="mt-4">Sites</h4>
+  {% if sites %}
+  <table class="table table-striped table-bordered table-sm align-middle w-auto swf-sortable">
+    <thead>
+      <tr>
+        <th>Site</th><th>Status</th><th>Environments</th><th>Landings</th>
+        <th>Platforms</th><th>First landing</th><th>Last landing</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for site in sites %}
+      <tr>
+        <td>{{ site.name }}</td>
+        <td class="{{ site.status|state_class }}">{{ site.status }}</td>
+        <td>{{ site.map.environments|default:0 }}</td>
+        <td>{{ site.map.landings|default:0 }}</td>
+        <td>{{ site.map.platforms|join:", " }}</td>
+        <td>{{ site.first_landing_at|fmt_dt }}</td>
+        <td>{{ site.last_landing_at|fmt_dt }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>No landings recorded.</p>
+  {% endif %}
+
+  <h4 class="mt-4">Node environments</h4>
+  {% if environments %}
+  <table class="table table-striped table-bordered table-sm align-middle w-auto swf-sortable">
+    <thead>
+      <tr>
+        <th>Site</th><th>Fingerprint</th><th>OS</th><th>CPU</th>
+        <th>Cores</th><th>Mem GB</th><th>GPU</th><th>Landings</th>
+        <th>Last seen</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for env in environments %}
+      <tr>
+        <td>{{ env.site.name }}</td>
+        <td><code>{{ env.fingerprint }}</code></td>
+        <td>{{ env.environment.os }}</td>
+        <td>{{ env.environment.cpu_model }}</td>
+        <td>{{ env.environment.cpu_cores }}</td>
+        <td>{{ env.environment.mem_gb }}</td>
+        <td>{% if env.environment.gpu.present %}yes{% else %}no{% endif %}</td>
+        <td>{{ env.landing_count }}</td>
+        <td>{{ env.last_seen_at|fmt_dt }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>No node environments mapped.</p>
+  {% endif %}
+
+  <h4 class="mt-4">Queues</h4>
+  {% if queue_rows %}
+  <table class="table table-striped table-bordered table-sm align-middle w-auto swf-sortable">
+    <thead>
+      <tr>
+        <th>Queue</th><th>Site</th><th>Status</th><th>Jobs</th>
+        <th>Median wait</th><th>90th pct</th><th>Failures</th>
+        <th>Window end</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in queue_rows %}
+      <tr>
+        <td>{{ row.queue.name }}</td>
+        <td>{{ row.queue.site.name|default:"-" }}</td>
+        <td class="{{ row.queue.status|state_class }}">{{ row.queue.status }}</td>
+        <td>{{ row.sample.njobs|default:"-" }}{% if row.low_stats %} (low stats){% endif %}</td>
+        <td>{{ row.wait_median }}</td>
+        <td>{{ row.wait_p90 }}</td>
+        <td>{{ row.failure_pct }}</td>
+        <td>{{ row.sample.window_end|fmt_dt }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>No queues assessed.</p>
+  {% endif %}
+</div>
+{% endblock %}

@@ -33,17 +33,20 @@ def write_samples(assessment):
     return written
 
 
+def format_duration(seconds):
+    """Duration display in the PANDA_USER_JOBS.md manner ('-' for none)."""
+    if seconds is None:
+        return '-'
+    if seconds < 600:
+        return f'{seconds / 60:.1f} min'
+    if seconds < 7200:
+        return f'{seconds / 60:.0f} min'
+    return f'{seconds / 3600:.1f} h'
+
+
 def format_table(assessment):
     """Readable per-queue table in the PANDA_USER_JOBS.md manner."""
-    def dur(seconds):
-        if seconds is None:
-            return '-'
-        if seconds < 600:
-            return f'{seconds / 60:.1f} min'
-        if seconds < 7200:
-            return f'{seconds / 60:.0f} min'
-        return f'{seconds / 3600:.1f} h'
-
+    dur = format_duration
     lines = [f"{'Queue':<32} {'Jobs':>7} {'Median wait':>12} "
              f"{'90th pct':>10} {'Fail':>6}"]
     for e in assessment['queues']:

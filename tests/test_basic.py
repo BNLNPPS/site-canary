@@ -91,6 +91,19 @@ def test_assessor_metrics():
     assert result['malformed_rows'] == 1
 
 
+def test_web_check():
+    try:
+        import django  # noqa: F401
+    except ImportError:
+        print('  (django not installed; web check skipped)')
+        return
+    result = subprocess.run(
+        [sys.executable, os.path.join(REPO_ROOT, 'scripts', 'webdev.py'),
+         'check'],
+        capture_output=True, encoding='utf-8', timeout=60)
+    assert result.returncode == 0, result.stderr
+
+
 def test_landing_fingerprint():
     result = _run_cli('landing', '--no-payload')
     assert result.returncode == 0, result.stderr
