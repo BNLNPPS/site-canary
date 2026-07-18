@@ -4,7 +4,7 @@
 Stands in for a real payload so prmon has something meaningful to
 measure: a CPU-bound hash loop with periodic file I/O, running for the
 requested number of seconds. Real ePIC payloads arrive with the probe
-jobs (PLAN.md increment 7).
+jobs (PLAN.md increment 8).
 
 Usage: sample_payload.py <seconds>
 """

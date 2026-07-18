@@ -31,11 +31,15 @@ of the hosted deployment.
   increments. Ingest deduplicates by node environment under horizontal
   identity.
 - The passive assessor and policy evaluator (PLAN.md increments 4
-  and 5) run as standalone agent processes on the platform host,
-  following the platform's prod-ops agent pattern.
+  and 6) run as standalone agent processes on the platform host,
+  following the platform's prod-ops agent pattern. The assessor's live
+  source reads PanDA accounting (`doma_panda.jobsarchived4`) through a
+  read-only database identity supplied as `CANARY_PANDA_DSN`; its
+  snapshot source carries the same rows as a file for development and
+  relay.
 - As a snapper-ai component owner, site-canary publishes its curated
   projections through the snapper-ai publication helper in the same
-  runtime (PLAN.md increment 6).
+  runtime (PLAN.md increment 7).
 
 ## Open decisions
 
@@ -44,10 +48,14 @@ deployment:
 
 - ingress authentication and identity for landing deliveries, for
   probe jobs and for riders;
+- issuance of the read-only PanDA accounting credential for the
+  assessor, and verification of the accounting query against the live
+  BNL instance;
 - site and queue naming authority — PanDA queue configuration as the
   source of canonical names;
 - direct-database vs REST publication for platform-resident canary
   agents;
 - retention policy for landing reports — the map spine is compact,
   the report stream accumulates;
-- monitor page mounting and visibility.
+- Canary page visibility (the page mounts in the System pulldown of
+  the swf-monitor navigation).

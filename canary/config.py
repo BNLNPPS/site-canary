@@ -16,6 +16,11 @@ CVMFS_REPOS = config('CANARY_CVMFS_REPOS', cast=Csv(),
                      default='eic.opensciencegrid.org,'
                              'singularity.opensciencegrid.org')
 
+# PanDA accounting database DSN for the passive assessor's live source,
+# set only where that database is reachable (the platform host). Empty
+# means the assessor requires a snapshot source.
+PANDA_DSN = config('CANARY_PANDA_DSN', default='')
+
 # Store database, used only by the standalone harness (scripts/storectl.py).
 # In a hosted deployment the Django host project owns database settings.
 DB_NAME = config('CANARY_DB_NAME', default='canary_dev')

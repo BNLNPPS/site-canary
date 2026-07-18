@@ -64,7 +64,7 @@ schema:
 `canary/landing/sample_payload.py`: a bounded CPU hash loop with
 periodic file I/O, giving prmon meaningful work to measure. Probe jobs
 built from real ePIC payloads replace it for probing (PLAN.md
-increment 7).
+increment 8).
 
 ## State store
 
@@ -100,6 +100,32 @@ Store dependencies install with the `store` extra
 (`pip install "site-canary[store]"`). The standalone harness
 `scripts/storectl.py` (`check` | `makemigrations` | `migrate` |
 `ingest` | `map`) configures Django from the `CANARY_DB_*` settings
-for development and standalone use; in the swf-monitor deployment the
-host project owns settings and migrations
-([SWF_INTEGRATION.md](SWF_INTEGRATION.md)).
+(via `canary.store.standalone`) for development and standalone use; in
+the swf-monitor deployment the host project owns settings and
+migrations ([SWF_INTEGRATION.md](SWF_INTEGRATION.md)).
+
+## Passive assessor
+
+`canary assess (--snapshot FILE | --panda) [--window-days N]
+[--min-jobs N] [--write] [--json]` computes the queue-responsiveness
+instrument of PANDA_USER_JOBS.md per queue over the window: job count,
+creation-to-start wait median and 90th percentile, failure rate,
+finished-per-hour. Computation (`canary/assessor/metrics.py`) is a
+pure function over accounting job rows; malformed rows are counted and
+reported, never silently dropped. A queue below the statistics
+threshold keeps its entry with null percentiles and a low-stats flag —
+quiet queues are probe targets, not gaps.
+
+Two sources (`canary/assessor/sources.py`) deliver identical rows:
+`--panda` queries `doma_panda.jobsarchived4` (finished and failed jobs
+since the window start) through `CANARY_PANDA_DSN`, and `--snapshot`
+reads the same rows from a file (schema
+`canary-accounting-snapshot/0`, written by `dump_snapshot`). The
+snapshot is the relay between the platform host, which can export one
+with a single query, and development anywhere. The live query awaits
+verification against the BNL instance (SWF_INTEGRATION.md).
+
+`--write` stores one `PassiveSample` per assessed queue: typed columns
+for the core instrument (`njobs`, `wait_median_s`, `wait_p90_s`,
+`failure_rate`), the remainder in `metrics`. Queues are created on
+first sight, site unset until the PanDA-configuration mapping arrives.

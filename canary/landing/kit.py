@@ -3,7 +3,7 @@
 Produces the landing report: a JSON document with the environment
 fingerprint and, unless suppressed, the prmon summary of a sample
 payload run. The report is the raw material for the capability record
-and rider packet schemas (PLAN.md increments 3 and 8).
+and rider packet schemas (PLAN.md increments 3 and 9).
 """
 import json
 import logging

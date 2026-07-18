@@ -65,6 +65,32 @@ def test_store_check():
     assert result.returncode == 0, result.stderr
 
 
+def test_assessor_metrics():
+    from datetime import datetime, timedelta, timezone
+    from canary.assessor.metrics import compute_queue_metrics
+    end = datetime.now(timezone.utc)
+    start = end - timedelta(days=1)
+    rows = []
+    for i in range(60):  # busy queue: 1-minute waits, 25% failures
+        c = start + timedelta(minutes=i)
+        rows.append({'computingsite': 'BUSY', 'jobstatus':
+                     'failed' if i % 4 == 0 else 'finished',
+                     'creationtime': c.isoformat(),
+                     'starttime': (c + timedelta(minutes=1)).isoformat()})
+    rows.append({'computingsite': 'QUIET', 'jobstatus': 'finished',
+                 'creationtime': start.isoformat(),
+                 'starttime': start.isoformat()})
+    rows.append({'bogus': True})
+    result = compute_queue_metrics(rows, start, end, min_jobs=50)
+    busy, quiet = result['queues']
+    assert busy['queue'] == 'BUSY' and busy['njobs'] == 60
+    assert busy['wait_median_s'] == 60.0
+    assert busy['failure_rate'] == 0.25
+    assert quiet['queue'] == 'QUIET' and quiet['low_stats']
+    assert quiet['wait_median_s'] is None
+    assert result['malformed_rows'] == 1
+
+
 def test_landing_fingerprint():
     result = _run_cli('landing', '--no-payload')
     assert result.returncode == 0, result.stderr

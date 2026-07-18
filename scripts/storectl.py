@@ -23,25 +23,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 def setup_django():
-    import django
-    from django.conf import settings
-    from canary.config import (DB_HOST, DB_NAME, DB_PASSWORD, DB_PORT,
-                               DB_USER)
-    settings.configure(
-        INSTALLED_APPS=['canary.store'],
-        DATABASES={'default': {
-            'ENGINE': 'django.db.backends.postgresql',
-            'NAME': DB_NAME,
-            'USER': DB_USER,
-            'PASSWORD': DB_PASSWORD,
-            'HOST': DB_HOST,
-            'PORT': DB_PORT,
-        }},
-        USE_TZ=True,
-        TIME_ZONE='UTC',
-        DEFAULT_AUTO_FIELD='django.db.models.BigAutoField',
-    )
-    django.setup()
+    from canary.store.standalone import setup_django as _setup
+    _setup()
 
 
 def cmd_ingest(args):

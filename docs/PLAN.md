@@ -61,21 +61,31 @@ checks are added by the increments that produce their data, so schemas
 follow measured output. The deployment contract for the
 swf-monitor/swfdb installation is [SWF_INTEGRATION.md](SWF_INTEGRATION.md).
 
-### 4. Passive assessor v0
+### 4. Passive assessor v0 (done)
 
 Per-queue health metrics from PanDA accounting — time-to-start, failure
 rate, throughput — computed on a cadence and written to the store,
 building on the queue responsiveness measurement in
 [PANDA_USER_JOBS.md](https://github.com/BNLNPPS/swf-epicprod/blob/main/docs/PANDA_USER_JOBS.md).
-No actuation.
+No actuation. The snapshot source decouples development from the PanDA
+database; verification of the live source and the cadenced run are
+platform-side steps.
 
-### 5. Policy v0
+### 5. Canary page
+
+The Canary page, in the System pulldown of the swf-monitor navigation:
+the landscape map at site and node level, passive samples, and health
+states, served by the packaged app's views and templates in the
+swf-monitor runtime. Development runs against a local store; mounting
+in the platform navigation lands with the installation.
+
+### 6. Policy v0
 
 The compact declared policy file (test classes, exclusion and recovery
 windows, ePIC values) and the evaluator that turns stored evidence into
 verdicts. Verdicts are logged and recorded, not actuated.
 
-### 6. AI surface: snapper-ai publication and MCP
+### 7. AI surface: snapper-ai publication and MCP
 
 site-canary registers as a snapper-ai component owner and publishes its
 first curated projections: per-queue health states and the capability
@@ -85,14 +95,13 @@ platform's other operational state. A standalone MCP server wrapping
 the packaged app's REST API is the path for deployments outside the
 platform, should one be needed.
 
-### 7. Actuation and probes
+### 8. Actuation and probes
 
 Verdicts act on PanDA queue status with action-stream provenance
 records; the dedicated global-shares probe leaf; the first probe jobs
-built from real ePIC payloads, carrying the landing kit. Monitor pages
-in the swf-monitor installation.
+built from real ePIC payloads, carrying the landing kit.
 
-### 8. Rider
+### 9. Rider
 
 The carrier-embedded rider: gather decision, packet schema publication,
 collection ladder, collector deduplication. The rider extends the

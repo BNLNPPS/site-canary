@@ -46,7 +46,10 @@ class Queue(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=100, unique=True)
+    # Nullable until the queue-to-site mapping arrives from PanDA queue
+    # configuration, the naming authority (docs/SWF_INTEGRATION.md).
     site = models.ForeignKey(Site, on_delete=models.PROTECT,
+                             null=True, blank=True,
                              related_name='queues')
     status = models.CharField(max_length=16, choices=Health.choices,
                               default=Health.UNKNOWN)
@@ -99,6 +102,41 @@ class NodeEnvironment(models.Model):
 
     def __str__(self):
         return f'{self.site.name}:{self.fingerprint}'
+
+
+class PassiveSample(models.Model):
+    """Per-queue health metrics for one window of accounting data.
+
+    The core columns are the queue-responsiveness instrument
+    (swf-epicprod PANDA_USER_JOBS.md): job count, creation-to-start
+    wait median and 90th percentile, failure rate. Further measures
+    ride in `metrics`. A low-statistics window keeps its row with null
+    percentiles — quiet queues are probe targets, not gaps.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    queue = models.ForeignKey(Queue, on_delete=models.PROTECT,
+                              related_name='passive_samples')
+    window_start = models.DateTimeField()
+    window_end = models.DateTimeField()
+    njobs = models.PositiveIntegerField(default=0)
+    wait_median_s = models.FloatField(null=True, blank=True)
+    wait_p90_s = models.FloatField(null=True, blank=True)
+    failure_rate = models.FloatField(null=True, blank=True)
+    metrics = models.JSONField(default=dict, blank=True)
+    data = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'canary_passive_sample'
+        ordering = ['-window_end']
+        indexes = [
+            models.Index(fields=['queue', '-window_end'],
+                         name='canary_sample_queue_time_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.queue.name}@{self.window_end.isoformat()}'
 
 
 class LandingReport(models.Model):
