@@ -4,8 +4,8 @@ Lightweight site testing and health assessment for PanDA processing
 resources, written for ePIC but as an agnostic tool: continuous
 functional probing of the distributed sites, automated exclusion and
 recovery acting through native PanDA mechanisms, and a live record of
-site state and capability. Its [design](docs/DESIGN.md) has been laid out,
-implementation to come. 
+site state and capability. Its [design](docs/DESIGN.md) has been laid out;
+implementation follows the increment plan in [docs/PLAN.md](docs/PLAN.md).
 
 The role is in part the one HammerCloud has filled for ATLAS:
 site health testing as input to exclusion and recovery, and dynamic
@@ -32,5 +32,6 @@ alongside the [swf repositories](https://github.com/BNLNPPS/swf-testbed),
 [snapper-ai](https://github.com/BNLNPPS/snapper-ai), documented at the
 [ePIC WFMS documentation](https://epic-wfms-docs.readthedocs.io/).
 
-Status: design. The design considerations, including the decision record
-on the HammerCloud path, are in [docs/DESIGN.md](docs/DESIGN.md).
+Status: implementation underway per the [increment plan](docs/PLAN.md).
+The design considerations, including the decision record on the
+HammerCloud path, are in [docs/DESIGN.md](docs/DESIGN.md).

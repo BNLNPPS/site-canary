@@ -1,0 +1,94 @@
+# site-canary Implementation Plan
+
+The increment plan for site-canary implementation. The design and its
+decision record are in [DESIGN.md](DESIGN.md); IMPLEMENTATION.md records
+the built system as components land. Increments follow the design's
+priorities: passive assessment before active probing, verdicts before
+actuation, with node measurement early because its output shapes the
+schemas that follow.
+
+## Standing constraints
+
+- **snapper-ai publication.** site-canary is a component owner feeding
+  [snapper-ai](https://github.com/BNLNPPS/snapper-ai): health states,
+  capability records, and the landscape map are published as bounded,
+  owner-curated projections at declared resolution. The view of the
+  distributed processing resources is a major extension of snapper-ai's
+  snapshot view of the WFMS, and every state schema is shaped from the
+  start so its projection publishes cleanly.
+- **Family conventions.** PostgreSQL state store; models with UUID
+  primary keys, `data` JSONField, `created_at`/`modified_at`;
+  python-decouple configuration with the `CANARY_` prefix; the
+  packaged-Django-app deployment pattern of snapper-ai for platform
+  integration; standalone agent processes outside the web runtime.
+- **prmon.** [prmon](https://github.com/HSF/prmon) is the node
+  measurement tool. Schema design for capability records follows
+  measured prmon output rather than preceding it.
+- **Testing.** Verification is live usage: in-the-moment scripts and
+  real runs. The repo carries one minimal smoke script (`tests/`)
+  confirming the package imports and the CLI runs, and it stays at that
+  scale. No test framework, fixtures, or mocking infrastructure.
+
+## Increments
+
+### 1. Scaffold (current)
+
+`canary` Python package: pyproject packaging, python-decouple
+configuration, logging, `canary` CLI entry point, simple functionality
+tests. The layout anticipates the two deliverables: a packaged Django
+app (models, migrations, REST, monitor pages) installable into the
+swf-monitor runtime, and standalone agent processes for probing,
+collection, and policy evaluation.
+
+### 2. prmon landing kit
+
+A committed tool that characterizes the node it runs on: environment
+fingerprint (platform, kernel, CPU, memory, container runtime, CVMFS,
+GPU) plus a prmon-wrapped sample payload. Runnable on any node with no
+PanDA machinery. Its measured output — what prmon reports, what is
+stable, what discriminates nodes — defines the capability record and
+packet schemas. It is the common base of the probe payload and the
+rider.
+
+### 3. State store v0
+
+Django models in the packaged app: queues, passive samples, capability
+check results, verdicts, and status history with provenance. The
+deployment contract for the swf-monitor/swfdb installation is
+documented in the manner of snapper-ai's SWF_EPICPROD_INTEGRATION.md.
+
+### 4. Passive assessor v0
+
+Per-queue health metrics from PanDA accounting — time-to-start, failure
+rate, throughput — computed on a cadence and written to the store,
+building on the queue responsiveness measurement in
+[PANDA_USER_JOBS.md](https://github.com/BNLNPPS/swf-epicprod/blob/main/docs/PANDA_USER_JOBS.md).
+No actuation.
+
+### 5. Policy v0
+
+The compact declared policy file (test classes, exclusion and recovery
+windows, ePIC values) and the evaluator that turns stored evidence into
+verdicts. Verdicts are logged and recorded, not actuated.
+
+### 6. AI surface: snapper-ai publication and MCP
+
+site-canary registers as a snapper-ai component owner and publishes its
+first curated projections: per-queue health states and the capability
+record. Canary MCP tools join the swf-monitor MCP service, serving
+health states, capability records, and verdict provenance alongside the
+platform's other operational state. A standalone MCP server wrapping
+the packaged app's REST API is the path for deployments outside the
+platform, should one be needed.
+
+### 7. Actuation and probes
+
+Verdicts act on PanDA queue status with action-stream provenance
+records; the dedicated global-shares probe leaf; the first probe jobs
+built from real ePIC payloads, carrying the landing kit. Monitor pages
+in the swf-monitor installation.
+
+### 8. Rider
+
+The carrier-embedded rider: gather decision, packet schema publication,
+collection ladder, collector deduplication, landscape map.
