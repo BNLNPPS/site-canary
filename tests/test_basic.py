@@ -52,6 +52,17 @@ def test_cli_rejects_unknown():
     assert result.returncode != 0
 
 
+def test_landing_fingerprint():
+    result = _run_cli('landing', '--no-payload')
+    assert result.returncode == 0, result.stderr
+    import json
+    report = json.loads(result.stdout)
+    fp = report['fingerprint']
+    for key in ('os', 'kernel', 'cpu_model', 'cpu_cores', 'mem_gb',
+                'fingerprint'):
+        assert key in fp, key
+
+
 def main():
     tests = [v for k, v in sorted(globals().items())
              if k.startswith('test_') and callable(v)]

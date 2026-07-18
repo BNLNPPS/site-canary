@@ -31,7 +31,7 @@ schemas that follow.
 
 ## Increments
 
-### 1. Scaffold (current)
+### 1. Scaffold (done)
 
 `canary` Python package: pyproject packaging, python-decouple
 configuration, logging, `canary` CLI entry point, simple functionality
@@ -40,7 +40,7 @@ app (models, migrations, REST, monitor pages) installable into the
 swf-monitor runtime, and standalone agent processes for probing,
 collection, and policy evaluation.
 
-### 2. prmon landing kit
+### 2. prmon landing kit (done)
 
 A committed tool that characterizes the node it runs on: environment
 fingerprint (platform, kernel, CPU, memory, container runtime, CVMFS,
@@ -53,7 +53,10 @@ rider.
 ### 3. State store v0
 
 Django models in the packaged app: queues, passive samples, capability
-check results, verdicts, and status history with provenance. The
+check results, verdicts, status history with provenance, and the
+processing landscape map, fed by landing reports. The map carries two
+levels: site level, started by the first landing at a site, and node
+level, built as landings accumulate distinct fingerprints. The
 deployment contract for the swf-monitor/swfdb installation is
 documented in the manner of snapper-ai's SWF_EPICPROD_INTEGRATION.md.
 
@@ -91,4 +94,5 @@ in the swf-monitor installation.
 ### 8. Rider
 
 The carrier-embedded rider: gather decision, packet schema publication,
-collection ladder, collector deduplication, landscape map.
+collection ladder, collector deduplication. The rider extends the
+node-level map to every node real work reaches.

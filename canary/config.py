@@ -4,6 +4,14 @@ All runtime configuration comes from environment variables or a .env
 file. Settings are read here at import time so a missing or malformed
 value fails at process start, not mid-run.
 """
-from decouple import config
+from decouple import config, Csv
 
 LOG_LEVEL = config('CANARY_LOG_LEVEL', default='INFO')
+
+# Path to the prmon binary; empty means search PATH, then repo .prmon/.
+PRMON_PATH = config('CANARY_PRMON', default='')
+
+# CVMFS repos the fingerprint probes for reachability and revision.
+CVMFS_REPOS = config('CANARY_CVMFS_REPOS', cast=Csv(),
+                     default='eic.opensciencegrid.org,'
+                             'singularity.opensciencegrid.org')
