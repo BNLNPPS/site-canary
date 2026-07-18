@@ -50,15 +50,16 @@ stable, what discriminates nodes — defines the capability record and
 packet schemas. It is the common base of the probe payload and the
 rider.
 
-### 3. State store v0
+### 3. State store v0 (done)
 
-Django models in the packaged app: queues, passive samples, capability
-check results, verdicts, status history with provenance, and the
-processing landscape map, fed by landing reports. The map carries two
-levels: site level, started by the first landing at a site, and node
-level, built as landings accumulate distinct fingerprints. The
-deployment contract for the swf-monitor/swfdb installation is
-documented in the manner of snapper-ai's SWF_EPICPROD_INTEGRATION.md.
+Django models in the packaged app for the map spine: sites, queues,
+node environments, and landing reports, with ingest feeding the
+two-level map — site level started by the first landing at a site,
+node level built as landings accumulate distinct fingerprints. Tables
+for passive samples, verdicts and status history, and capability
+checks are added by the increments that produce their data, so schemas
+follow measured output. The deployment contract for the
+swf-monitor/swfdb installation is [SWF_INTEGRATION.md](SWF_INTEGRATION.md).
 
 ### 4. Passive assessor v0
 

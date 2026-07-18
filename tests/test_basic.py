@@ -52,6 +52,19 @@ def test_cli_rejects_unknown():
     assert result.returncode != 0
 
 
+def test_store_check():
+    try:
+        import django  # noqa: F401
+    except ImportError:
+        print('  (django not installed; store check skipped)')
+        return
+    result = subprocess.run(
+        [sys.executable, os.path.join(REPO_ROOT, 'scripts', 'storectl.py'),
+         'check'],
+        capture_output=True, encoding='utf-8', timeout=60)
+    assert result.returncode == 0, result.stderr
+
+
 def test_landing_fingerprint():
     result = _run_cli('landing', '--no-payload')
     assert result.returncode == 0, result.stderr

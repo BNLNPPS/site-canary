@@ -65,3 +65,41 @@ schema:
 periodic file I/O, giving prmon meaningful work to measure. Probe jobs
 built from real ePIC payloads replace it for probing (PLAN.md
 increment 7).
+
+## State store
+
+`canary.store` is a packaged Django application (app label `canary`,
+tables `canary_*`) holding the map spine:
+
+- **Site** — the operational unit and the map's site level: health
+  state, first/last landing, and a site map recomputed from the node
+  census.
+- **Queue** — a PanDA queue served by a site, with its own health
+  state.
+- **NodeEnvironment** — the map's node level: one distinct execution
+  environment at a site under horizontal identity (unique
+  `(site, fingerprint)`), carrying the fingerprint content, prmon CPU
+  topology, and a landing census.
+- **LandingReport** — the evidence stream: each landing report as
+  delivered, with source (probe, rider, manual) and landing time.
+
+The health vocabulary is unknown, healthy, suspect, excluded,
+recovering. Model conventions follow the family: UUID primary keys,
+`data` JSONField, `created_at`/`modified_at`, PROTECT foreign keys,
+named constraints and indexes.
+
+Ingest (`canary.store.ingest.ingest_report`) is one transaction per
+report: the site record starts or updates, the node environment is
+created or refreshed, the report is stored, and the site-level map is
+recomputed deterministically from the current node census —
+environments, landings, platforms, architectures, core and memory
+ranges, GPU and CVMFS environment counts. A malformed report raises
+`IngestError`; nothing ingests partially.
+
+Store dependencies install with the `store` extra
+(`pip install "site-canary[store]"`). The standalone harness
+`scripts/storectl.py` (`check` | `makemigrations` | `migrate` |
+`ingest` | `map`) configures Django from the `CANARY_DB_*` settings
+for development and standalone use; in the swf-monitor deployment the
+host project owns settings and migrations
+([SWF_INTEGRATION.md](SWF_INTEGRATION.md)).
