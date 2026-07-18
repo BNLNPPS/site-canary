@@ -130,6 +130,33 @@ for the core instrument (`njobs`, `wait_median_s`, `wait_p90_s`,
 `failure_rate`), the remainder in `metrics`. Queues are created on
 first sight, site unset until the PanDA-configuration mapping arrives.
 
+## Policy engine
+
+The policy is a compact, versioned YAML document; the packaged ePIC
+policy is `canary/policy/epic.yaml`, overridable via `CANARY_POLICY`.
+It declares evidence requirements (maximum sample age, minimum job
+count) and an ordered rule list of `field op value` conditions over
+the passive metrics — parsed and validated at load time
+(`canary/policy/loader.py`), never evaluated as expressions. Unknown
+keys, fields, or operators fail the load.
+
+Evaluation (`canary/policy/engine.py`) separates the pure decision
+from its application. `decide(policy, evidence)` returns the verdict
+and its exact reason; stale evidence yields `unknown`, low statistics
+yield `insufficient` (no status implication). `apply()` records one
+`Verdict` per queue with the full evidence, and performs status
+transitions with `StatusChange` provenance under the standing rules: a
+manually pinned status is never overridden, and passive evidence does
+not recover an excluded queue (exclusion stops the traffic that
+generates it; recovery arrives with probes, or manually).
+
+`canary evaluate [--policy FILE] [--write] [--json]` runs the
+evaluator — dry run by default. Manual state setting goes through
+`storectl set-status QUEUE STATUS [--pin|--unpin] [--reason ...]`,
+recorded with `actor=manual`; `--pin` marks the status authoritative
+against the evaluator. Verdicts and status apply per queue; site-level
+status derivation arrives with actuation.
+
 ## Canary page
 
 `canary.store.views.canary_page`, template

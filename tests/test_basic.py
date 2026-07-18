@@ -104,6 +104,23 @@ def test_web_check():
     assert result.returncode == 0, result.stderr
 
 
+def test_policy_decide():
+    from canary.policy.engine import decide
+    from canary.policy.loader import load_policy
+    policy = load_policy()  # packaged ePIC policy
+    assert policy['policy'] == 'epic'
+    base = {'sample_age_hours': 1.0, 'njobs': 500, 'low_stats': False,
+            'wait_median_s': 60, 'wait_p90_s': 120}
+    assert decide(policy, {**base, 'failure_rate': 0.05})[0] == 'healthy'
+    assert decide(policy, {**base, 'failure_rate': 0.40})[0] == 'suspect'
+    assert decide(policy, {**base, 'failure_rate': 0.80})[0] == 'excluded'
+    assert decide(policy, {**base, 'njobs': 10,
+                           'failure_rate': 0.9})[0] == 'insufficient'
+    assert decide(policy, {**base, 'sample_age_hours': 48,
+                           'failure_rate': 0.05})[0] == 'unknown'
+    assert decide(policy, {'sample_age_hours': None})[0] == 'unknown'
+
+
 def test_landing_fingerprint():
     result = _run_cli('landing', '--no-payload')
     assert result.returncode == 0, result.stderr

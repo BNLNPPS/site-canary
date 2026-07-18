@@ -79,11 +79,13 @@ states, served by the packaged app's views and templates in the
 swf-monitor runtime. Development runs against a local store; mounting
 in the platform navigation lands with the installation.
 
-### 6. Policy v0
+### 6. Policy v0 (done)
 
 The compact declared policy file (test classes, exclusion and recovery
 windows, ePIC values) and the evaluator that turns stored evidence into
-verdicts. Verdicts are logged and recorded, not actuated.
+verdicts. Verdicts are logged and recorded, not actuated. Exclusion and
+recovery windows, and probe test classes, enter the policy vocabulary
+with the probe increment.
 
 ### 7. AI surface: snapper-ai publication and MCP
 

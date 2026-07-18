@@ -16,6 +16,9 @@ CVMFS_REPOS = config('CANARY_CVMFS_REPOS', cast=Csv(),
                      default='eic.opensciencegrid.org,'
                              'singularity.opensciencegrid.org')
 
+# Policy file path; empty means the packaged ePIC policy.
+POLICY_PATH = config('CANARY_POLICY', default='')
+
 # PanDA accounting database DSN for the passive assessor's live source,
 # set only where that database is reachable (the platform host). Empty
 # means the assessor requires a snapshot source.

@@ -139,6 +139,68 @@ class PassiveSample(models.Model):
         return f'{self.queue.name}@{self.window_end.isoformat()}'
 
 
+class Verdict(models.Model):
+    """One policy evaluation of one queue: reproducible and recheckable.
+
+    The evidence carries the sample identity, the values judged, and
+    the rule that fired, so the reason for any verdict can be stated
+    exactly (design principle 7: rules decide, AI advises).
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    queue = models.ForeignKey(Queue, on_delete=models.PROTECT,
+                              related_name='verdicts')
+    verdict = models.CharField(max_length=16)
+    policy_name = models.CharField(max_length=64)
+    policy_version = models.CharField(max_length=32)
+    evidence = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'canary_verdict'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['queue', '-created_at'],
+                         name='canary_verdict_queue_time_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.queue.name}:{self.verdict}'
+
+
+class StatusChange(models.Model):
+    """Status history with provenance: every queue status transition."""
+
+    class Actor(models.TextChoices):
+        POLICY = 'policy', 'Policy'
+        MANUAL = 'manual', 'Manual'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    queue = models.ForeignKey(Queue, on_delete=models.PROTECT,
+                              related_name='status_changes')
+    old_status = models.CharField(max_length=16)
+    new_status = models.CharField(max_length=16)
+    actor = models.CharField(max_length=16, choices=Actor.choices)
+    verdict = models.ForeignKey(Verdict, on_delete=models.SET_NULL,
+                                null=True, blank=True,
+                                related_name='status_changes')
+    reason = models.TextField(blank=True, default='')
+    data = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'canary_status_change'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['queue', '-created_at'],
+                         name='canary_change_queue_time_idx'),
+        ]
+
+    def __str__(self):
+        return (f'{self.queue.name}:{self.old_status}->{self.new_status}'
+                f' ({self.actor})')
+
+
 class LandingReport(models.Model):
     """One landing report as delivered: the map's evidence stream."""
 

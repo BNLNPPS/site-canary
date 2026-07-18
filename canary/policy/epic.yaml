@@ -1,0 +1,29 @@
+# site-canary exclusion and recovery policy — ePIC values.
+#
+# Compact, declared, versioned (DESIGN.md principle 6). The evaluator
+# applies it deterministically per queue; a manually pinned status
+# always wins. Values here are production policy: change them in a
+# versioned commit.
+
+policy: epic
+version: "0"
+
+evidence:
+  # Passive evidence is the latest passive sample per queue.
+  sample_max_age_hours: 24   # older evidence cannot judge: verdict unknown
+  min_jobs: 50               # fewer jobs cannot judge: verdict insufficient
+
+verdicts:
+  # First matching rule decides, top to bottom.
+  - verdict: excluded
+    when: failure_rate >= 0.60
+  - verdict: suspect
+    when: failure_rate >= 0.30
+  - verdict: healthy
+    when: failure_rate < 0.30
+
+recovery:
+  # Passive evidence cannot recover an excluded queue: exclusion stops
+  # the traffic that generates the evidence. Recovery probes arrive
+  # with the probe increment; until then recovery is manual.
+  passive: false

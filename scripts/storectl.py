@@ -75,6 +75,33 @@ def cmd_map(args):
     return 0
 
 
+def cmd_set_status(args):
+    from canary.store.models import Health, Queue, StatusChange
+    if args.status not in Health.values:
+        print(f'ERROR: status must be one of {list(Health.values)}',
+              file=sys.stderr)
+        return 1
+    try:
+        queue = Queue.objects.get(name=args.queue)
+    except Queue.DoesNotExist:
+        print(f'ERROR: unknown queue {args.queue!r}', file=sys.stderr)
+        return 1
+    old = queue.status
+    queue.status = args.status
+    if args.pin:
+        queue.data['manual_pin'] = True
+    if args.unpin:
+        queue.data.pop('manual_pin', None)
+    queue.save()
+    StatusChange.objects.create(
+        queue=queue, old_status=old, new_status=args.status,
+        actor='manual', reason=args.reason,
+        data={'pinned': bool(queue.data.get('manual_pin'))})
+    print(f'{queue.name}: {old} -> {args.status}'
+          f'{" (pinned)" if queue.data.get("manual_pin") else ""}')
+    return 0
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog='storectl', description='canary store harness')
@@ -90,6 +117,13 @@ def main(argv=None):
                           choices=['probe', 'rider', 'manual'])
     p_map = sub.add_parser('map')
     p_map.add_argument('--site')
+    p_status = sub.add_parser('set-status')
+    p_status.add_argument('queue')
+    p_status.add_argument('status')
+    p_status.add_argument('--pin', action='store_true',
+                          help='pin: the policy evaluator will not override')
+    p_status.add_argument('--unpin', action='store_true')
+    p_status.add_argument('--reason', default='')
     args = parser.parse_args(argv)
 
     setup_django()
@@ -102,6 +136,8 @@ def main(argv=None):
         return cmd_ingest(args)
     if args.command == 'map':
         return cmd_map(args)
+    if args.command == 'set-status':
+        return cmd_set_status(args)
     return 1
 
 

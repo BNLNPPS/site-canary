@@ -55,6 +55,35 @@ def cmd_assess(args):
     return 0
 
 
+def cmd_evaluate(args):
+    from .policy.engine import apply
+    from .policy.loader import PolicyError, load_policy
+    from .store.standalone import setup_django
+
+    from .config import POLICY_PATH
+    try:
+        policy = load_policy(args.policy or POLICY_PATH or None)
+    except PolicyError as e:
+        print(f'ERROR: {e}', file=sys.stderr)
+        return 1
+    setup_django()
+    results = apply(policy, write=args.write)
+    if args.json:
+        print(json.dumps(results, indent=2))
+    else:
+        for r in results:
+            arrow = (f"{r['status_before']} -> {r['status_after']}"
+                     if r['transition'] else r['status_after'])
+            note = f" [{r['blocked']}]" if r['blocked'] else ''
+            print(f"{r['queue']:<32} {r['verdict']:<12} {arrow:<22} "
+                  f"{r['reason']}{note}")
+        mode = 'applied' if args.write else 'dry run — nothing written'
+        print(f"policy {policy['policy']}/{policy['version']} · "
+              f"{sum(1 for r in results if r['transition'])} transitions "
+              f"({mode})")
+    return 0
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog='canary',
@@ -92,6 +121,17 @@ def main(argv=None):
     p_assess.add_argument('--json', action='store_true',
                           help='JSON output instead of table')
     p_assess.set_defaults(func=cmd_assess)
+
+    p_eval = subparsers.add_parser(
+        'evaluate',
+        help='evaluate policy over stored evidence; verdicts, no actuation')
+    p_eval.add_argument('--policy', help='policy file '
+                        '(default: packaged epic.yaml, or CANARY_POLICY)')
+    p_eval.add_argument('--write', action='store_true',
+                        help='record verdicts and apply status transitions')
+    p_eval.add_argument('--json', action='store_true',
+                        help='JSON output instead of table')
+    p_eval.set_defaults(func=cmd_evaluate)
 
     args = parser.parse_args(argv)
     if args.command is None:
