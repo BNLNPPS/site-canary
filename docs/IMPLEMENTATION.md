@@ -122,8 +122,9 @@ since the window start) through `CANARY_PANDA_DSN`, and `--snapshot`
 reads the same rows from a file (schema
 `canary-accounting-snapshot/0`, written by `dump_snapshot`). The
 snapshot is the relay between the platform host, which can export one
-with a single query, and development anywhere. The live query awaits
-verification against the BNL instance (SWF_INTEGRATION.md).
+with a single query, and development anywhere. The live query is
+verified against the BNL instance: the schema matches as written
+(SWF_INTEGRATION.md).
 
 `--write` stores one `PassiveSample` per assessed queue: typed columns
 for the core instrument (`njobs`, `wait_median_s`, `wait_p90_s`,
@@ -169,8 +170,9 @@ landing counts, platforms, first/last landing), node environments
 (fingerprint, platform facts, GPU, landing census, last seen), and
 queues (status, latest passive sample: jobs, wait median and 90th
 percentile, failure rate, low-stats flag, window end). Canary health
-states carry BigMon-palette fill classes, page-scoped until promoted
-to `state-colors.css`.
+states carry BigMon-palette fill classes from the platform's
+`state-colors.css`; excluded takes a calm neutral fill — a health
+state is an evaluation, not a fact, and red means broken.
 
 Development outside the platform: `scripts/webdev.py check|runserver`
 renders the page against the `CANARY_DB_*` store using the

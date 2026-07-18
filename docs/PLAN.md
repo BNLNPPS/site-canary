@@ -87,7 +87,7 @@ verdicts. Verdicts are logged and recorded, not actuated. Exclusion and
 recovery windows, and probe test classes, enter the policy vocabulary
 with the probe increment.
 
-### 7. AI surface: snapper-ai publication and MCP
+### 7. AI surface: snapper-ai publication and MCP (next)
 
 site-canary registers as a snapper-ai component owner and publishes its
 first curated projections: per-queue health states and the capability

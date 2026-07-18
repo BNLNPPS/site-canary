@@ -62,49 +62,67 @@ Page development outside the platform uses `scripts/webdev.py`, which
 supplies stand-ins for the base template and `swf_fmt` filters
 (`scripts/devweb/`); the hosted runtime never installs the stand-ins.
 
-## Bootstrap sequence
+## Platform installation
 
-The platform-side steps, on the swf-testbed host, in order:
+The bootstrap sequence completed 2026-07-18; this section records the
+standing installation on the swf-testbed host (`pandaserver02`).
 
-1. Clone `BNLNPPS/site-canary` into the workspace beside the swf
-   repositories and install it into the shared venv:
-   `pip install -e '.[store]'`.
-2. Verify the assessor's accounting query against the live BNL
-   instance with a read-only `CANARY_PANDA_DSN`: run
-   `canary assess --panda`, compare with the July 2026 profile in
-   PANDA_USER_JOBS.md, and correct the query here if the live schema
-   differs. Export a snapshot (`dump_snapshot`) for development use
-   elsewhere.
-3. Install the store into swf-monitor: `canary.store` in
-   `INSTALLED_APPS`, migrate (`canary_*` tables in `swfdb`).
-4. Mount the Canary page: URL include, System pulldown entry,
-   `active_nav` wiring, canary health fills promoted to
-   `state-colors.css`; smoke-check page content after deploy.
-5. Stand up the assessor cadence as a supervised agent in the
-   prod-ops pattern, writing passive samples on the configured
-   interval.
-6. First real landing: run `canary landing` on a BNL worker or
-   interactive node, ingest it, and confirm the map starts with a
-   real site.
-7. Continue with PLAN.md increments 6–9 (policy, AI surface,
-   actuation and probes, rider).
+- site-canary is installed editable with the `store` extra in the
+  shared development venv, wired into `swf-testbed` (`install.sh`,
+  `docs/installation.md`, `pyproject.toml`) beside snapper-ai. The
+  swf-monitor deploy freezes it non-editable into each release venv,
+  so production picks up canary changes only on deploy.
+- The accounting query was verified against the live BNL instance:
+  `doma_panda.jobsarchived4` matches the query as written, and the
+  per-queue results reproduce the July 2026 profile in
+  PANDA_USER_JOBS.md where the windows overlap.
+- `canary.store` is in the monitor's `INSTALLED_APPS`; the `canary_*`
+  tables live in `swfdb`. The Canary page is mounted at `/canary/` in
+  the System pulldown, with the health fills in `state-colors.css`.
+- **The canary agent** (`swf-monitor/agents/canary_agent.py`, namespace
+  `canary` from `agents/canary.toml`) is the supervised singleton in
+  the prod-ops pattern: systemd unit `canary-agent.service`
+  (hand-installed in `/etc/systemd/system/`, `Restart=always`,
+  deliberate-shutdown exit 100), consuming `/queue/canary.ops`. Its
+  `assess_refresh` handler runs `canary assess --panda --write` then
+  `canary evaluate --write` as bounded subprocesses on the worker
+  pool, and publishes a `canary_assess_complete` event to
+  `/topic/epictopic`.
+- Cadence: an hourly cron (minute 5) enqueues `assess_refresh` via
+  `scripts/enqueue-ops-message.py --queue /queue/canary.ops
+  --namespace canary`; the same command by hand is the on-demand
+  trigger.
+- Configuration: `CANARY_PANDA_DSN` and `CANARY_DB_*` (the swfdb
+  store) in `/opt/swf-monitor/config/env/production.env` for the
+  agent, and in `~/.env` for development use.
+- The swf-remote face proxies the page at `/prod/canary/`
+  (`remote_app` canary routes).
+- The map holds its first real landing: site BNL, one node
+  environment from `canary landing` on the platform host.
 
 Development-only pieces never deploy: `scripts/devweb/`,
 `scripts/webdev.py`, and the local development database.
 
+## Next
+
+PLAN.md increments 7–9: the AI surface (snapper-ai publication and
+MCP tools), actuation and probes, and the rider.
+
 ## Open decisions
 
-Named before first production writes, to be settled with the platform
-deployment:
+Named before first production writes, to be settled as the deployment
+matures:
 
 - ingress authentication and identity for landing deliveries, for
   probe jobs and for riders;
 - issuance of the read-only PanDA accounting credential for the
-  assessor, and verification of the accounting query against the live
-  BNL instance;
+  assessor — until issued, the monitor's `panda` account serves the
+  read-only query;
 - site and queue naming authority — PanDA queue configuration as the
-  source of canonical names;
+  source of canonical names (the first landing was recorded under a
+  manually chosen site name);
 - direct-database vs REST publication for platform-resident canary
-  agents;
+  agents — the assessor currently writes the store directly through
+  the standalone settings;
 - retention policy for landing reports — the map spine is compact,
   the report stream accumulates.
