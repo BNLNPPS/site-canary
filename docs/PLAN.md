@@ -87,7 +87,62 @@ verdicts. Verdicts are logged and recorded, not actuated. Exclusion and
 recovery windows, and probe test classes, enter the policy vocabulary
 with the probe increment.
 
-### 7. AI surface: snapper-ai publication and MCP (next)
+### Passive assessment commissioning gate (next)
+
+The platform commissioning run, from 2026-07-18 through 2026-07-22,
+established that the hourly execution path is reliable and inexpensive.
+Ninety-nine assessment cycles completed, normally between 3.4 and 5.1 seconds,
+with no canary error records. The fourteen-day accounting query grew
+from 111,687 to 294,137 archived jobs without material runtime growth.
+Six expected hourly slots had no completed cycle; cadence gaps currently
+have no dedicated alert.
+
+The run also established the limits of the v0 health interpretation. At
+the end of the period the store presented fifteen queues: thirteen with
+current samples and two retaining older samples. The displayed states
+were five healthy, four excluded, and six unknown. The landscape map
+still contained one manual BNL landing, and queues had no site mapping.
+The following work is required before the health states are published as
+an AI product or used for PanDA actuation:
+
+1. **Evidence time and windows.** Record the newest contributing job
+   timestamp and use it when judging evidence age. The current sample
+   `window_end` records assessment time, so repeated evaluation of old
+   jobs can appear fresh. Add a short incident window alongside the
+   fourteen-day baseline so failure bursts and fast-failure burn-through
+   receive prompt verdicts without discarding the longer trend.
+2. **Failure attribution.** Separate site or queue failures from payload,
+   task, and common configuration failures. A failure-rate increase seen
+   at several facilities must not independently classify each facility
+   as unhealthy without site-specific evidence. Record job duration and
+   the available PanDA error classification needed for the burn-through
+   signature.
+3. **Responsiveness policy.** Bring queue wait measures into policy
+   evaluation. A low failure fraction alone is insufficient for a
+   healthy verdict when median or tail start latency indicates that the
+   queue is not responsive.
+4. **Verdict and status separation.** Present the latest policy verdict,
+   its reason, evidence time, and any blocked transition separately from
+   the enforced queue status. Define pre-actuation transition behavior so
+   a stored exclusion does not hide later suspect or healthy evidence.
+   Enable sticky exclusion when active exclusion and probe-based recovery
+   are available; the advisory-only evaluator remains evidence-current.
+5. **Site map completion.** Load the PanDA queue-to-site mapping, using
+   PanDA queue configuration as the naming authority, and derive site
+   state from the mapped queue evidence. Replace the manual platform-host
+   landing with evidence from processing nodes as probes and riders land.
+6. **Operational coverage.** Monitor hourly completion and sample
+   freshness, alert on cadence gaps, and declare retention for passive
+   samples and verdicts before their hourly histories accumulate.
+
+The gate is complete when evidence age follows the newest contributing
+job, short-window tests detect and clear an incident on the declared
+timescale, common payload failures do not produce independent site
+exclusions, every assessed queue has a canonical site mapping, the page
+shows current verdict and enforced status with provenance, and a missed
+assessment cycle is visible as an operational failure.
+
+### 7. AI surface: snapper-ai publication and MCP
 
 site-canary registers as a snapper-ai component owner and publishes its
 first curated projections: per-queue health states and the capability
