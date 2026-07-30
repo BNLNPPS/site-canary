@@ -7,14 +7,10 @@ access policy (docs/SWF_INTEGRATION.md).
 from django.shortcuts import render
 
 from ..assessor.run import format_duration
-from .models import PassiveSample, Queue, Site
+from .models import PassiveSample, Queue
 
 
 def canary_page(request):
-    sites = list(Site.objects.prefetch_related('node_environments'))
-    environments = [env for site in sites
-                    for env in site.node_environments.all()]
-
     queues = list(Queue.objects.select_related('site'))
     latest = {}
     for sample in PassiveSample.objects.order_by('queue_id', '-window_end'):
@@ -35,7 +31,5 @@ def canary_page(request):
         })
 
     return render(request, 'canary/canary_page.html', {
-        'sites': sites,
-        'environments': environments,
         'queue_rows': queue_rows,
     })
