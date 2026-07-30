@@ -168,10 +168,9 @@ Public read-only, matching the System Status page. The queue table is a
 house-convention static table (`swf-sortable`, `swf_fmt` timestamps,
 colored state cells) with the mapped site, current status, latest
 passive sample, wait median and 90th percentile, failure rate,
-low-statistics flag, window end, and Snapper link. Test-named queues
-are omitted. The table caption states the status thresholds from the
-active policy configuration and keeps that description within the
-table width. A
+window end, and Snapper link. Test-named queues are omitted. The table
+caption states the status thresholds from the active policy
+configuration and keeps that description within the table width. A
 configuration error is logged and displayed on the page; no threshold
 defaults are substituted. Queue states use BigMon-palette fill classes
 from the platform's `state-colors.css`.

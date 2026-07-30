@@ -41,7 +41,7 @@
         <td>{{ row.queue.site.name|default:"-" }}</td>
         <td class="{{ row.queue.status|state_class }}">{{ row.queue.status }}</td>
         <td>{{ row.failure_pct }}</td>
-        <td>{{ row.sample.njobs|default:"-" }}{% if row.low_stats %} (low stats){% endif %}</td>
+        <td>{{ row.sample.njobs|default:"-" }}</td>
         <td>{{ row.wait_median }}</td>
         <td>{{ row.wait_p90 }}</td>
         <td>{{ row.sample.window_end|fmt_dt }}</td>

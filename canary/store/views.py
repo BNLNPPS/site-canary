@@ -55,7 +55,6 @@ def canary_page(request):
                 sample.wait_p90_s if sample else None),
             'failure_pct': ('-' if not sample or sample.failure_rate is None
                             else f'{sample.failure_rate * 100:.0f}%'),
-            'low_stats': bool(sample and sample.metrics.get('low_stats')),
         })
 
     return render(request, 'canary/canary_page.html', {
