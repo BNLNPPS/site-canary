@@ -9,12 +9,17 @@ def write_samples(assessment):
     (Django configured by the caller or a hosting project)."""
     from django.utils.dateparse import parse_datetime
 
+    from ..queue_names import is_test_queue
     from ..store.models import PassiveSample, Queue
 
     window_start = parse_datetime(assessment['window_start'])
     window_end = parse_datetime(assessment['window_end'])
     written = []
     for entry in assessment['queues']:
+        if is_test_queue(entry['queue']):
+            logger.info("test-named queue excluded from sample write: %s",
+                        entry['queue'])
+            continue
         queue, _ = Queue.objects.get_or_create(name=entry['queue'])
         sample = PassiveSample.objects.create(
             queue=queue,
@@ -60,5 +65,8 @@ def format_table(assessment):
     lines.append(f"window {assessment['window_start']} .. "
                  f"{assessment['window_end']}"
                  + (f" · {assessment['malformed_rows']} malformed rows"
-                    if assessment['malformed_rows'] else ''))
+                    if assessment['malformed_rows'] else '')
+                 + (f" · {assessment.get('excluded_test_rows', 0)} "
+                    f"test-queue rows excluded"
+                    if assessment.get('excluded_test_rows') else ''))
     return '\n'.join(lines)

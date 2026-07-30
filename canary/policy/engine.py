@@ -52,7 +52,8 @@ def apply(policy, write=False):
         latest.setdefault(sample.queue_id, sample)
 
     results = []
-    for queue in Queue.objects.order_by('name'):
+    for queue in Queue.objects.exclude(
+            name__icontains='test').order_by('name'):
         sample = latest.get(queue.id)
         evidence = {
             'sample_id': str(sample.id) if sample else None,

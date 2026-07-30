@@ -81,6 +81,9 @@ def test_assessor_metrics():
     rows.append({'computingsite': 'QUIET', 'jobstatus': 'finished',
                  'creationtime': start.isoformat(),
                  'starttime': start.isoformat()})
+    rows.append({'computingsite': 'BUSY_test', 'jobstatus': 'failed',
+                 'creationtime': start.isoformat(),
+                 'starttime': start.isoformat()})
     rows.append({'bogus': True})
     result = compute_queue_metrics(rows, start, end, min_jobs=50)
     busy, quiet = result['queues']
@@ -90,6 +93,7 @@ def test_assessor_metrics():
     assert quiet['queue'] == 'QUIET' and quiet['low_stats']
     assert quiet['wait_median_s'] is None
     assert result['malformed_rows'] == 1
+    assert result['excluded_test_rows'] == 1
 
 
 def test_web_check():

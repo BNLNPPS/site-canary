@@ -9,28 +9,28 @@
   <p class="text-muted">Site health and capability ·
     <a href="https://github.com/BNLNPPS/site-canary">Source and doc</a>
   </p>
-  <p class="text-muted small">
-    Jobs, wait times, and failure rates cover the rolling 14 days ending
-    at the listed window end.
-    {% if policy_error %}
-    <span class="text-danger">Queue status policy configuration error:
-      {{ policy_error }}</span>
-    {% else %}
-    Queue status is healthy below {{ policy_levels.degraded_failure_pct }}%
-    failures, degraded from {{ policy_levels.degraded_failure_pct }}% to
-    below {{ policy_levels.failing_failure_pct }}%, and failing at
-    {{ policy_levels.failing_failure_pct }}% or above. Insufficient means
-    fewer than {{ policy_levels.min_jobs }} jobs; unknown means there is
-    no current usable sample.
-    {% endif %}
-  </p>
 
   {% if queue_rows %}
   <table class="table table-striped table-bordered table-sm align-middle w-auto swf-sortable">
+    <caption class="caption-top text-start text-muted small pt-0">
+      Jobs, wait times, and failure rates cover the rolling 14 days ending
+      at the listed window end.
+      {% if policy_error %}
+      <span class="text-danger">Queue status policy configuration error:
+        {{ policy_error }}</span>
+      {% else %}
+      Queue status is healthy below {{ policy_levels.degraded_failure_pct }}%
+      failures, degraded from {{ policy_levels.degraded_failure_pct }}% to
+      below {{ policy_levels.failing_failure_pct }}%, and failing at
+      {{ policy_levels.failing_failure_pct }}% or above. Insufficient means
+      fewer than {{ policy_levels.min_jobs }} jobs; unknown means there is
+      no current usable sample.
+      {% endif %}
+    </caption>
     <thead>
       <tr>
         <th>Queue</th><th>Site</th><th>Status</th><th>Failures</th>
-        <th>Jobs</th><th>Median wait</th><th>90th pct</th>
+        <th>Assessment</th><th>Jobs</th><th>Median wait</th><th>90th pct</th>
         <th>Window end</th><th>Snapper</th>
       </tr>
     </thead>
@@ -41,14 +41,13 @@
         <td>{{ row.queue.site.name|default:"-" }}</td>
         <td class="{{ row.queue.status|state_class }}">{{ row.queue.status }}</td>
         <td>{{ row.failure_pct }}</td>
+        <td>{{ row.assessment }}</td>
         <td>{{ row.sample.njobs|default:"-" }}{% if row.low_stats %} (low stats){% endif %}</td>
         <td>{{ row.wait_median }}</td>
         <td>{{ row.wait_p90 }}</td>
         <td>{{ row.sample.window_end|fmt_dt }}</td>
         <td>
-          {% if row.snapper_available %}
           <a href="{% url 'snapper_ai:snapper_focus' scope='epicprod' focus_slug='site' %}?site={{ row.queue.name|urlencode }}">View</a>
-          {% else %}-{% endif %}
         </td>
       </tr>
       {% endfor %}

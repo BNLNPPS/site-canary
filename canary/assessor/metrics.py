@@ -9,6 +9,8 @@ probe targets and must stay visible.
 import logging
 from datetime import datetime
 
+from ..queue_names import is_test_queue
+
 logger = logging.getLogger('canary.assessor.metrics')
 
 REQUIRED_FIELDS = ('computingsite', 'creationtime', 'starttime', 'jobstatus')
@@ -36,9 +38,13 @@ def compute_queue_metrics(rows, window_start, window_end, min_jobs=50):
     window_hours = (window_end - window_start).total_seconds() / 3600.0
     queues = {}
     malformed = 0
+    excluded_test_rows = 0
     for row in rows:
         if any(f not in row for f in ('computingsite', 'jobstatus')):
             malformed += 1
+            continue
+        if is_test_queue(row['computingsite']):
+            excluded_test_rows += 1
             continue
         q = queues.setdefault(row['computingsite'], {
             'finished': 0, 'failed': 0, 'other': 0, 'waits': []})
@@ -80,7 +86,11 @@ def compute_queue_metrics(rows, window_start, window_end, min_jobs=50):
     results.sort(key=lambda e: -e['njobs'])
     if malformed:
         logger.error("%d malformed rows skipped", malformed)
+    if excluded_test_rows:
+        logger.info("%d rows from test-named queues excluded",
+                    excluded_test_rows)
     return {'queues': results, 'malformed_rows': malformed,
+            'excluded_test_rows': excluded_test_rows,
             'window_start': window_start.isoformat(),
             'window_end': window_end.isoformat(),
             'min_jobs': min_jobs}
