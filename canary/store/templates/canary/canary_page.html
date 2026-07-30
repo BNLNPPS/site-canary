@@ -30,7 +30,7 @@
     <thead>
       <tr>
         <th>Queue</th><th>Site</th><th>Status</th><th>Failures</th>
-        <th>Assessment</th><th>Jobs</th><th>Median wait</th><th>90th pct</th>
+        <th>Jobs</th><th>Median wait</th><th>90th pct</th>
         <th>Window end</th><th>Snapper</th>
       </tr>
     </thead>
@@ -41,7 +41,6 @@
         <td>{{ row.queue.site.name|default:"-" }}</td>
         <td class="{{ row.queue.status|state_class }}">{{ row.queue.status }}</td>
         <td>{{ row.failure_pct }}</td>
-        <td>{{ row.assessment }}</td>
         <td>{{ row.sample.njobs|default:"-" }}{% if row.low_stats %} (low stats){% endif %}</td>
         <td>{{ row.wait_median }}</td>
         <td>{{ row.wait_p90 }}</td>

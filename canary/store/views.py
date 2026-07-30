@@ -11,33 +11,9 @@ from django.shortcuts import render
 from ..assessor.run import format_duration
 from ..config import POLICY_PATH
 from ..policy.loader import PolicyError, load_policy
-from .models import PassiveSample, Queue, Verdict
+from .models import PassiveSample, Queue
 
 logger = logging.getLogger('canary.store.views')
-
-
-def _assessment_summary(verdict):
-    """Concise human-readable account of the latest policy verdict."""
-    if verdict is None:
-        return 'Not assessed'
-    if verdict.verdict == 'healthy':
-        return 'Failure rate within policy'
-    if verdict.verdict == 'degraded':
-        return 'Elevated failure rate'
-    if verdict.verdict == 'failing':
-        return 'High failure rate'
-    if verdict.verdict == 'insufficient':
-        njobs = verdict.evidence.get('njobs')
-        return (f'Only {njobs} jobs' if njobs is not None
-                else 'Too few jobs')
-    if verdict.verdict == 'unknown':
-        reason = verdict.evidence.get('rule', '')
-        if reason.startswith('sample age '):
-            return 'Sample is stale'
-        if reason == 'no passive sample':
-            return 'No passive sample'
-        return 'No usable sample'
-    return f'Unrecognized verdict: {verdict.verdict}'
 
 
 def canary_page(request):
@@ -67,17 +43,12 @@ def canary_page(request):
     latest = {}
     for sample in PassiveSample.objects.order_by('queue_id', '-window_end'):
         latest.setdefault(sample.queue_id, sample)
-    latest_verdict = {}
-    for verdict in Verdict.objects.order_by('queue_id', '-created_at'):
-        latest_verdict.setdefault(verdict.queue_id, verdict)
     queue_rows = []
     for queue in sorted(queues, key=lambda q: q.name):
         sample = latest.get(queue.id)
-        verdict = latest_verdict.get(queue.id)
         queue_rows.append({
             'queue': queue,
             'sample': sample,
-            'assessment': _assessment_summary(verdict),
             'wait_median': format_duration(
                 sample.wait_median_s if sample else None),
             'wait_p90': format_duration(
