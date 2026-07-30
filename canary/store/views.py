@@ -28,6 +28,7 @@ def canary_page(request):
             'failure_pct': ('-' if not sample or sample.failure_rate is None
                             else f'{sample.failure_rate * 100:.0f}%'),
             'low_stats': bool(sample and sample.metrics.get('low_stats')),
+            'snapper_available': 'test' not in queue.name.casefold(),
         })
 
     return render(request, 'canary/canary_page.html', {

@@ -34,7 +34,11 @@
         <td>{{ row.wait_p90 }}</td>
         <td>{{ row.failure_pct }}</td>
         <td>{{ row.sample.window_end|fmt_dt }}</td>
-        <td><a href="{% url 'snapper_ai:snapper_focus' scope='epicprod' focus_slug='site' %}?site={{ row.queue.name|urlencode }}">View</a></td>
+        <td>
+          {% if row.snapper_available %}
+          <a href="{% url 'snapper_ai:snapper_focus' scope='epicprod' focus_slug='site' %}?site={{ row.queue.name|urlencode }}">View</a>
+          {% else %}-{% endif %}
+        </td>
       </tr>
       {% endfor %}
     </tbody>
