@@ -16,7 +16,7 @@
       <tr>
         <th>Queue</th><th>Site</th><th>Status</th><th>Jobs</th>
         <th>Median wait</th><th>90th pct</th><th>Failures</th>
-        <th>Window end</th>
+        <th>Window end</th><th>Snapper</th>
       </tr>
     </thead>
     <tbody>
@@ -30,6 +30,7 @@
         <td>{{ row.wait_p90 }}</td>
         <td>{{ row.failure_pct }}</td>
         <td>{{ row.sample.window_end|fmt_dt }}</td>
+        <td><a href="{% url 'snapper_ai:snapper_focus' scope='epicprod' focus_slug='site' %}?site={{ row.queue.name|urlencode }}">View</a></td>
       </tr>
       {% endfor %}
     </tbody>
