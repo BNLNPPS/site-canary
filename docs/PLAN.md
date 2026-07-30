@@ -121,12 +121,11 @@ an AI product or used for PanDA actuation:
    evaluation. A low failure fraction alone is insufficient for a
    healthy verdict when median or tail start latency indicates that the
    queue is not responsive.
-4. **Verdict and status separation.** Present the latest policy verdict,
-   its reason, evidence time, and any blocked transition separately from
-   the enforced queue status. Define pre-actuation transition behavior so
-   a stored exclusion does not hide later suspect or healthy evidence.
-   Enable sticky exclusion when active exclusion and probe-based recovery
-   are available; the advisory-only evaluator remains evidence-current.
+4. **Evidence-current queue status.** The advisory development policy
+   writes the latest verdict directly as queue status: healthy, degraded,
+   failing, insufficient, or unknown. Only an explicit manual pin blocks
+   a transition. Sticky administrative state belongs with later PanDA
+   actuation and probe-based recovery, not the current passive evaluator.
 5. **Site map completion.** Load the PanDA queue-to-site mapping, using
    PanDA queue configuration as the naming authority, and derive site
    state from the mapped queue evidence. Replace the manual platform-host
@@ -137,10 +136,10 @@ an AI product or used for PanDA actuation:
 
 The gate is complete when evidence age follows the newest contributing
 job, short-window tests detect and clear an incident on the declared
-timescale, common payload failures do not produce independent site
-exclusions, every assessed queue has a canonical site mapping, the page
-shows current verdict and enforced status with provenance, and a missed
-assessment cycle is visible as an operational failure.
+timescale, common payload failures do not produce independent queue
+failures, every assessed queue has a canonical site mapping, the page
+shows current verdict provenance, and a missed assessment cycle is
+visible as an operational failure.
 
 ### 7. AI surface: snapper-ai publication and MCP
 

@@ -3,20 +3,14 @@ the store.
 
 decide() is a pure function — evidence and policy in, verdict and its
 exact reason out — so any verdict can be recomputed and rechecked.
-apply() records verdicts and performs status transitions under the
-standing rules: a manually pinned status is never overridden, and an
-excluded queue is not recovered by passive evidence unless the policy
-says so.
+apply() records verdicts and updates queue status to the current
+verdict unless the status is manually pinned.
 """
 import logging
 
 from .loader import OPS
 
 logger = logging.getLogger('canary.policy.engine')
-
-# Verdicts that carry no status implication.
-NON_STATUS_VERDICTS = {'insufficient'}
-
 
 def decide(policy, evidence):
     """Decide one queue's verdict from its passive evidence.
@@ -74,17 +68,12 @@ def apply(policy, write=False):
         verdict, reason = decide(policy, evidence)
 
         pinned = bool(queue.data.get('manual_pin'))
-        new_status = queue.status
-        blocked = ''
-        if verdict in NON_STATUS_VERDICTS:
-            blocked = 'verdict carries no status implication'
-        elif pinned:
+        if pinned:
+            new_status = queue.status
             blocked = 'status manually pinned'
-        elif (queue.status == 'excluded'
-              and not policy['recovery']['passive']):
-            blocked = 'passive recovery disabled'
         else:
             new_status = verdict
+            blocked = ''
 
         result = {
             'queue': queue.name, 'verdict': verdict, 'reason': reason,

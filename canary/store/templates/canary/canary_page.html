@@ -12,6 +12,17 @@
   <p class="text-muted small">
     Jobs, wait times, and failure rates cover the rolling 14 days ending
     at the listed window end.
+    {% if policy_error %}
+    <span class="text-danger">Queue status policy configuration error:
+      {{ policy_error }}</span>
+    {% else %}
+    Queue status is healthy below {{ policy_levels.degraded_failure_pct }}%
+    failures, degraded from {{ policy_levels.degraded_failure_pct }}% to
+    below {{ policy_levels.failing_failure_pct }}%, and failing at
+    {{ policy_levels.failing_failure_pct }}% or above. Insufficient means
+    fewer than {{ policy_levels.min_jobs }} jobs; unknown means there is
+    no current usable sample.
+    {% endif %}
   </p>
 
   {% if queue_rows %}

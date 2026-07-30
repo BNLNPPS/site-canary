@@ -71,9 +71,8 @@ increment 8).
 `canary.store` is a packaged Django application (app label `canary`,
 tables `canary_*`) holding the map spine:
 
-- **Site** — the operational unit and the map's site level: health
-  state, first/last landing, and a site map recomputed from the node
-  census.
+- **Site** — the location grouping for queues and node environments,
+  with first/last landing and a map recomputed from the node census.
 - **Queue** — a PanDA queue served by a site, with its own health
   state.
 - **NodeEnvironment** — the map's node level: one distinct execution
@@ -83,8 +82,8 @@ tables `canary_*`) holding the map spine:
 - **LandingReport** — the evidence stream: each landing report as
   delivered, with source (probe, rider, manual) and landing time.
 
-The health vocabulary is unknown, healthy, suspect, excluded,
-recovering. Model conventions follow the family: UUID primary keys,
+The queue-state vocabulary is unknown, insufficient, healthy, degraded,
+failing. Model conventions follow the family: UUID primary keys,
 `data` JSONField, `created_at`/`modified_at`, PROTECT foreign keys,
 named constraints and indexes.
 
@@ -139,40 +138,39 @@ It declares evidence requirements (maximum sample age, minimum job
 count) and an ordered rule list of `field op value` conditions over
 the passive metrics — parsed and validated at load time
 (`canary/policy/loader.py`), never evaluated as expressions. Unknown
-keys, fields, or operators fail the load.
+keys, missing evidence settings, missing or duplicate queue-state
+rules, malformed boundaries, fields, and operators fail the load.
 
 Evaluation (`canary/policy/engine.py`) separates the pure decision
 from its application. `decide(policy, evidence)` returns the verdict
 and its exact reason; stale evidence yields `unknown`, low statistics
-yield `insufficient` (no status implication). `apply()` records one
-`Verdict` per queue with the full evidence, and performs status
-transitions with `StatusChange` provenance under the standing rules: a
-manually pinned status is never overridden, and passive evidence does
-not recover an excluded queue (exclusion stops the traffic that
-generates it; recovery arrives with probes, or manually).
+yield `insufficient`. `apply()` records one `Verdict` per queue with
+the full evidence and updates the queue status to that verdict with
+`StatusChange` provenance. A manually pinned status is not overridden.
+The advisory development policy has no sticky state: every current
+sample can move an unpinned queue between healthy, degraded, failing,
+insufficient, and unknown.
 
 `canary evaluate [--policy FILE] [--write] [--json]` runs the
 evaluator — dry run by default. Manual state setting goes through
 `storectl set-status QUEUE STATUS [--pin|--unpin] [--reason ...]`,
 recorded with `actor=manual`; `--pin` marks the status authoritative
-against the evaluator. Verdicts and status apply per queue; site-level
-status derivation arrives with actuation.
+against the evaluator. Verdicts and status apply per queue.
 
 ## Canary page
 
 `canary.store.views.canary_page`, template
 `canary/canary_page.html`, mounted in the System pulldown of the
 swf-monitor navigation ([SWF_INTEGRATION.md](SWF_INTEGRATION.md)).
-Public read-only, matching the System Status page. Three sections,
-all house-convention static tables (`swf-sortable`, `swf_fmt`
-timestamps, colored state cells): sites (status, environment and
-landing counts, platforms, first/last landing), node environments
-(fingerprint, platform facts, GPU, landing census, last seen), and
-queues (status, latest passive sample: jobs, wait median and 90th
-percentile, failure rate, low-stats flag, window end). Canary health
-states carry BigMon-palette fill classes from the platform's
-`state-colors.css`; excluded takes a calm neutral fill — a health
-state is an evaluation, not a fact, and red means broken.
+Public read-only, matching the System Status page. The queue table is a
+house-convention static table (`swf-sortable`, `swf_fmt` timestamps,
+colored state cells) with the mapped site, current status, latest
+passive sample, wait median and 90th percentile, failure rate,
+low-statistics flag, window end, and Snapper link. The description
+states the status thresholds from the active policy configuration. A
+configuration error is logged and displayed on the page; no threshold
+defaults are substituted. Queue states use BigMon-palette fill classes
+from the platform's `state-colors.css`.
 
 Development outside the platform: `scripts/webdev.py check|runserver`
 renders the page against the `CANARY_DB_*` store using the

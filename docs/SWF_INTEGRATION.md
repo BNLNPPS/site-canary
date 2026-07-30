@@ -7,7 +7,7 @@ described in [IMPLEMENTATION.md](IMPLEMENTATION.md).
 
 ## Integration boundary
 
-site-canary owns probing, assessment, curation of site-health state,
+site-canary owns probing, assessment, curation of queue-health state,
 and the landscape map. The store (`canary.store`) installs as a Django
 application in the swf-monitor runtime, in the same pattern as
 snapper-ai and the installable epicprod applications: its models use
@@ -54,8 +54,8 @@ Status page. The installation adds:
 - a `System` pulldown entry
   (`<a href="{% url 'canary:canary_page' %}">Canary</a>`) in the base
   template, with `active_nav` wiring;
-- the canary health fills (healthy, suspect, excluded, recovering,
-  unknown), carried page-scoped until promoted to
+- the canary queue-state fills (healthy, degraded, failing,
+  insufficient, unknown), carried page-scoped until promoted to
   `state-colors.css`.
 
 Page development outside the platform uses `scripts/webdev.py`, which

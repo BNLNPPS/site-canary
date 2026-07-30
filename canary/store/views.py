@@ -4,13 +4,40 @@ states, in the System pulldown of the swf-monitor navigation.
 Public read-only, matching the System Status page; the platform owns
 access policy (docs/SWF_INTEGRATION.md).
 """
+import logging
+
 from django.shortcuts import render
 
 from ..assessor.run import format_duration
+from ..config import POLICY_PATH
+from ..policy.loader import PolicyError, load_policy
 from .models import PassiveSample, Queue
+
+logger = logging.getLogger('canary.store.views')
 
 
 def canary_page(request):
+    policy_levels = None
+    policy_error = ''
+    try:
+        policy = load_policy(POLICY_PATH or None)
+        failure_thresholds = {
+            rule['verdict']: float(rule['when']['value']) * 100
+            for rule in policy['verdicts']
+            if rule['when']['field'] == 'failure_rate'
+        }
+        policy_levels = {
+            'degraded_failure_pct': (
+                f"{failure_thresholds['degraded']:g}"
+            ),
+            'failing_failure_pct': (
+                f"{failure_thresholds['failing']:g}"
+            ),
+            'min_jobs': policy['evidence']['min_jobs'],
+        }
+    except PolicyError as exc:
+        policy_error = str(exc)
+        logger.error('Canary policy configuration error: %s', exc)
     queues = list(Queue.objects.select_related('site'))
     latest = {}
     for sample in PassiveSample.objects.order_by('queue_id', '-window_end'):
@@ -33,4 +60,6 @@ def canary_page(request):
 
     return render(request, 'canary/canary_page.html', {
         'queue_rows': queue_rows,
+        'policy_levels': policy_levels,
+        'policy_error': policy_error,
     })

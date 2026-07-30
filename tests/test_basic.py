@@ -7,6 +7,7 @@ the runner reports PASS/FAIL per test and exits nonzero on any failure.
 import os
 import subprocess
 import sys
+import tempfile
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
@@ -112,13 +113,40 @@ def test_policy_decide():
     base = {'sample_age_hours': 1.0, 'njobs': 500, 'low_stats': False,
             'wait_median_s': 60, 'wait_p90_s': 120}
     assert decide(policy, {**base, 'failure_rate': 0.05})[0] == 'healthy'
-    assert decide(policy, {**base, 'failure_rate': 0.40})[0] == 'suspect'
-    assert decide(policy, {**base, 'failure_rate': 0.80})[0] == 'excluded'
+    assert decide(policy, {**base, 'failure_rate': 0.40})[0] == 'degraded'
+    assert decide(policy, {**base, 'failure_rate': 0.80})[0] == 'failing'
     assert decide(policy, {**base, 'njobs': 10,
                            'failure_rate': 0.9})[0] == 'insufficient'
     assert decide(policy, {**base, 'sample_age_hours': 48,
                            'failure_rate': 0.05})[0] == 'unknown'
     assert decide(policy, {'sample_age_hours': None})[0] == 'unknown'
+
+
+def test_policy_rejects_missing_required_settings():
+    from canary.policy.loader import PolicyError, load_policy
+
+    invalid_policy = """\
+policy: epic
+version: "test"
+evidence:
+  sample_max_age_hours: 24
+verdicts:
+  - verdict: healthy
+    when: failure_rate < 0.30
+  - verdict: degraded
+    when: failure_rate >= 0.30
+"""
+    with tempfile.NamedTemporaryFile(
+            mode='w', suffix='.yaml', encoding='utf-8') as policy_file:
+        policy_file.write(invalid_policy)
+        policy_file.flush()
+        try:
+            load_policy(policy_file.name)
+        except PolicyError as exc:
+            message = str(exc)
+            assert 'min_jobs' in message
+        else:
+            raise AssertionError('invalid policy was silently accepted')
 
 
 def test_landing_fingerprint():

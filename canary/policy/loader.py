@@ -11,9 +11,8 @@ import yaml
 
 DEFAULT_POLICY = os.path.join(os.path.dirname(__file__), 'epic.yaml')
 
-TOP_KEYS = {'policy', 'version', 'evidence', 'verdicts', 'recovery'}
+TOP_KEYS = {'policy', 'version', 'evidence', 'verdicts'}
 EVIDENCE_KEYS = {'sample_max_age_hours', 'min_jobs'}
-RECOVERY_KEYS = {'passive'}
 CONDITION_FIELDS = {'failure_rate', 'njobs', 'wait_median_s', 'wait_p90_s'}
 OPS = {'>=': operator.ge, '>': operator.gt, '<=': operator.le,
        '<': operator.lt, '==': operator.eq}
@@ -56,20 +55,71 @@ def load_policy(path=None):
     for key in ('policy', 'version', 'evidence', 'verdicts'):
         if key not in doc:
             raise PolicyError(f'policy missing {key!r}')
-    if set(doc['evidence']) - EVIDENCE_KEYS:
+    if not isinstance(doc['evidence'], dict):
+        raise PolicyError('policy evidence must be a mapping')
+    unknown_evidence = set(doc['evidence']) - EVIDENCE_KEYS
+    if unknown_evidence:
         raise PolicyError(f'unknown evidence keys: '
-                          f'{sorted(set(doc["evidence"]) - EVIDENCE_KEYS)}')
-    if set(doc.get('recovery', {})) - RECOVERY_KEYS:
-        raise PolicyError(f'unknown recovery keys: '
-                          f'{sorted(set(doc["recovery"]) - RECOVERY_KEYS)}')
+                          f'{sorted(unknown_evidence)}')
+    missing_evidence = EVIDENCE_KEYS - set(doc['evidence'])
+    if missing_evidence:
+        raise PolicyError(f'missing evidence keys: '
+                          f'{sorted(missing_evidence)}')
+    max_age = doc['evidence']['sample_max_age_hours']
+    min_jobs = doc['evidence']['min_jobs']
+    if (not isinstance(max_age, (int, float))
+            or isinstance(max_age, bool) or max_age <= 0):
+        raise PolicyError(
+            'sample_max_age_hours must be a positive number'
+        )
+    if (not isinstance(min_jobs, int)
+            or isinstance(min_jobs, bool) or min_jobs <= 0):
+        raise PolicyError('min_jobs must be a positive integer')
+    if not isinstance(doc['verdicts'], list):
+        raise PolicyError('policy verdicts must be a list')
     rules = []
     for rule in doc['verdicts']:
+        if not isinstance(rule, dict):
+            raise PolicyError(f'verdict rule must be a mapping: {rule!r}')
         if set(rule) != {'verdict', 'when'}:
             raise PolicyError(f'rule must have exactly verdict+when: {rule}')
         rules.append({'verdict': str(rule['verdict']),
                       'when': _parse_condition(rule['when'])})
+    by_verdict = {}
+    for rule in rules:
+        verdict = rule['verdict']
+        if verdict in by_verdict:
+            raise PolicyError(f'duplicate verdict rule {verdict!r}')
+        by_verdict[verdict] = rule
+    required_verdicts = {'healthy', 'degraded', 'failing'}
+    missing_verdicts = required_verdicts - set(by_verdict)
+    if missing_verdicts:
+        raise PolicyError(f'missing verdict rules: '
+                          f'{sorted(missing_verdicts)}')
+    healthy = by_verdict['healthy']['when']
+    degraded = by_verdict['degraded']['when']
+    failing = by_verdict['failing']['when']
+    for verdict, condition, operation in (
+        ('healthy', healthy, '<'),
+        ('degraded', degraded, '>='),
+        ('failing', failing, '>='),
+    ):
+        if (condition['field'] != 'failure_rate'
+                or condition['op'] != operation):
+            raise PolicyError(
+                f"{verdict} rule must be failure_rate {operation} value"
+            )
+    if healthy['value'] != degraded['value']:
+        raise PolicyError(
+            'healthy and degraded rules must share one boundary'
+        )
+    if degraded['value'] >= failing['value']:
+        raise PolicyError(
+            'degraded failure boundary must be below failing boundary'
+        )
+    if degraded['value'] < 0 or failing['value'] > 1:
+        raise PolicyError('failure-rate boundaries must be between 0 and 1')
     doc['verdicts'] = rules
     doc['version'] = str(doc['version'])
-    doc.setdefault('recovery', {}).setdefault('passive', False)
     doc['path'] = path
     return doc

@@ -13,10 +13,10 @@ from django.db import models
 
 class Health(models.TextChoices):
     UNKNOWN = 'unknown', 'Unknown'
+    INSUFFICIENT = 'insufficient', 'Insufficient'
     HEALTHY = 'healthy', 'Healthy'
-    SUSPECT = 'suspect', 'Suspect'
-    EXCLUDED = 'excluded', 'Excluded'
-    RECOVERING = 'recovering', 'Recovering'
+    DEGRADED = 'degraded', 'Degraded'
+    FAILING = 'failing', 'Failing'
 
 
 class Site(models.Model):

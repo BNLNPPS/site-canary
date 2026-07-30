@@ -6,7 +6,7 @@
 # versioned commit.
 
 policy: epic
-version: "0"
+version: "1"
 
 evidence:
   # Passive evidence is the latest passive sample per queue.
@@ -15,15 +15,9 @@ evidence:
 
 verdicts:
   # First matching rule decides, top to bottom.
-  - verdict: excluded
+  - verdict: failing
     when: failure_rate >= 0.60
-  - verdict: suspect
+  - verdict: degraded
     when: failure_rate >= 0.30
   - verdict: healthy
     when: failure_rate < 0.30
-
-recovery:
-  # Passive evidence cannot recover an excluded queue: exclusion stops
-  # the traffic that generates the evidence. Recovery probes arrive
-  # with the probe increment; until then recovery is manual.
-  passive: false
