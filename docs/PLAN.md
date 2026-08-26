@@ -157,6 +157,22 @@ Verdicts act on PanDA queue status with action-stream provenance
 records; the dedicated global-shares probe leaf; the first probe jobs
 built from real ePIC payloads, carrying the landing kit.
 
+**Node I/O check.** A probe check class for the pilot working
+filesystem: a bounded write, fsync, and read-back on the pilot work
+directory (`/pscratch` at NERSC_Perlmutter_epic) with latency and
+throughput recorded per check, alongside the landing kit's prmon
+`iomon` figures. The check answers the question the 2026-08-25
+lost-heartbeat storm posed — pilots and payloads blocked for hours on
+node-side I/O, with nothing wrong at the server — at the node where
+it is asked. It runs on the adaptive cadence: sparse when a site is
+healthy, dense when the platform alarm reports heartbeat staleness
+concentrated at the site (SNAPPER_PLATFORM.md, node health map),
+targeting the named nodes where the batch system allows it. A
+timing-out or failing I/O check on a node is a directed-probe witness
+at the top evidence grade of ERROR_ATTRIBUTION.md, and the node's
+result enters the node-level map with its fingerprint, so a stalled
+scratch mount reads beside the node's platform and kernel.
+
 ### 9. Rider
 
 The carrier-embedded rider: gather decision, packet schema publication,
