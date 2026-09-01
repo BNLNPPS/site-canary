@@ -210,7 +210,9 @@ payload, and delivers the landing report on two paths: embedded in
 success and failure alike, and to stdout between
 `CANARY-REPORT-BEGIN` and `CANARY-REPORT-END` markers, collectable
 from the job log. Output goes to `group.EIC.canary.<queue>.<stamp>`
-with processing type `canary`.
+with processing type `canary`. The task allows one job attempt
+(`maxAttempt` 1): a failed landing is a failed probe, not a job PanDA
+retries until the signal is lost.
 
 The probe management section of the canary page lists each configured
 queue with its last run, next automatic run, editable interval, run

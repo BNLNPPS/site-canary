@@ -9,5 +9,6 @@
   "memory": 2048,
   "walltimeHours": 0.084,
   "skipScout": true,
+  "maxAttempt": 1,
   "containerImage": "/cvmfs/singularity.opensciencegrid.org/eicweb/eic_xl:nightly"
 }
