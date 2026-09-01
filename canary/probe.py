@@ -3,7 +3,10 @@ interval, and which are due. The configuration lives on the store's
 Queue rows (``data['probe']``); the agent's dispatch handler and the
 probes page both read through here.
 """
+import logging
 from datetime import timedelta
+
+logger = logging.getLogger('canary.probe')
 
 DEFAULT_INTERVAL_HOURS = 24.0
 
@@ -151,7 +154,9 @@ def refresh_run_statuses():
                 '"doma_panda"."jedi_tasks" '
                 f'WHERE "jeditaskid" IN ({marks})', ids)
             states = dict(cursor.fetchall())
-    except Exception:
+    except Exception as e:
+        logger.error('probe status refresh: PanDA task-state query '
+                     'failed for %d open runs: %s', len(open_runs), e)
         return 0
     advanced = 0
     for run_row in open_runs:

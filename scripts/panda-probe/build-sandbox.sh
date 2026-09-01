@@ -44,5 +44,15 @@ fi
 cp "${PRMON}" "${WORK}/kit/prmon"
 chmod +x "${WORK}/kit/prmon"
 
+# The in-job runner: the same evgen_job_dispatcher.py production jobs
+# run (one runner for production and probe jobs); its canary branch
+# executes the landing kit. Override with CANARY_DISPATCHER.
+DISPATCHER="${CANARY_DISPATCHER:-/data/wenauseic/github/swf-monitor/scripts/evgen_job_dispatcher.py}"
+if [ ! -f "${DISPATCHER}" ]; then
+    echo "dispatcher not found: ${DISPATCHER}" >&2
+    exit 1
+fi
+cp "${DISPATCHER}" "${WORK}/evgen_job_dispatcher.py"
+
 tar -C "${WORK}" -czf "${WORK}/canary-kit.tgz" kit
 echo "sandbox: ${WORK}/canary-kit.tgz ($(du -h "${WORK}/canary-kit.tgz" | cut -f1))"

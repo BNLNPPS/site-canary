@@ -161,10 +161,12 @@ against the evaluator. Verdicts and status apply per queue.
 
 ## Canary page
 
-`canary.store.views.canary_page`, template
-`canary/canary_page.html`, mounted in the System pulldown of the
-swf-monitor navigation ([SWF_INTEGRATION.md](SWF_INTEGRATION.md)).
-Public read-only, matching the System Status page. The queue table is a
+`canary.store.views.probes_page`, template `canary/probes.html`,
+mounted in the swf-monitor navigation
+([SWF_INTEGRATION.md](SWF_INTEGRATION.md)). One page serves the
+canary: the site health table leads, and probe management follows as a
+distinct section. The root canary URL redirects to this page. The
+health table is public read-only, matching the System Status page. It is a
 house-convention static table (`swf-sortable`, `swf_fmt` timestamps,
 colored state cells) with the mapped site, current status, latest
 passive sample, wait median and 90th percentile, failure rate,
@@ -179,3 +181,39 @@ Development outside the platform: `scripts/webdev.py check|runserver`
 renders the page against the `CANARY_DB_*` store using the
 `scripts/devweb/` stand-ins for the base template and `swf_fmt`
 filters. The stand-ins are dev-only and never installed hosted.
+
+## Probes
+
+`canary.probe` is the probe scheduling and dispatch module (PLAN.md
+increment 8, first piece). Probe configuration lives on the store's
+Queue rows (`data['probe']`: `enabled`, `interval_hours`); a queue
+with no probe block is not probed. The schedule anchors on the last
+submission that reached PanDA: a failed submission does not consume
+the interval and retries on the next dispatch cycle, and a queue with
+a run still awaiting its outcome is not probed again.
+
+`canary probe-dispatch [--queue NAME ...] [--json]` advances open run
+statuses from the PanDA task records, then submits probes for due
+queues (or immediately for named queues) through the submission doer,
+recording one `ProbeRun` per attempt with trigger auto or manual. A
+failed submission is recorded on its run with the doer output, never
+raised past the dispatch loop.
+
+The probe task is a single landing-kit job against the target queue.
+`scripts/panda-probe/build-sandbox.sh` vendors the canary package and
+the prmon binary into `kit/` beside the deployment's production
+in-job runner (`CANARY_DISPATCHER`); one runner serves production and
+probe jobs, and the task's exec invokes its canary mode as a single
+command. The job fingerprints its node, runs the prmon-wrapped sample
+payload, and delivers the landing report on two paths: embedded in
+`jobReport.json`, which the pilot ships as job metadata to PanDA on
+success and failure alike, and to stdout between
+`CANARY-REPORT-BEGIN` and `CANARY-REPORT-END` markers, collectable
+from the job log. Output goes to `group.EIC.canary.<queue>.<stamp>`
+with processing type `canary`.
+
+The probe management section of the canary page lists each configured
+queue with its last run, next automatic run, editable interval, run
+count, and Run now and Disable controls, with an enable form for
+unconfigured queues; each queue links to its probe run history. The
+controls are writes and follow the deployment's write gating.

@@ -17,6 +17,16 @@ logger = logging.getLogger('canary.store.views')
 
 
 def canary_page(request):
+    """Retired standalone page: the site health table leads the canary
+    probes page now. Relative redirect so both faces (direct and the
+    swf-remote proxy) resolve it under their own prefix."""
+    from django.http import HttpResponseRedirect
+    return HttpResponseRedirect('probes/')
+
+
+def _health_context():
+    """The site health table: per-queue status and latest passive
+    sample, with the policy thresholds for the caption."""
     policy_levels = None
     policy_error = ''
     try:
@@ -56,12 +66,11 @@ def canary_page(request):
             'failure_pct': ('-' if not sample or sample.failure_rate is None
                             else f'{sample.failure_rate * 100:.0f}%'),
         })
-
-    return render(request, 'canary/canary_page.html', {
+    return {
         'queue_rows': queue_rows,
         'policy_levels': policy_levels,
         'policy_error': policy_error,
-    })
+    }
 
 
 def _probe_writes_operable(request):
@@ -96,11 +105,13 @@ def probes_page(request):
     candidates = [q for q in Queue.objects.order_by('name')
                   if q.id not in enabled_ids
                   and 'test' not in q.name.lower()]
-    return render(request, 'canary/probes.html', {
+    context = _health_context()
+    context.update({
         'rows': rows,
         'candidates': candidates,
         'operable': _probe_writes_operable(request),
     })
+    return render(request, 'canary/probes.html', context)
 
 
 def probe_runs_page(request, queue_name):

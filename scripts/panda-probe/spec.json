@@ -1,6 +1,6 @@
 {
   "outDS": "group.EIC.canary.%QTAG%.%STAMP%",
-  "exec": "echo canary probe start; seq=%RNDM=0; if [ ! -d kit ]; then tar xzf canary-kit.tgz; fi; export CANARY_PRMON=$PWD/kit/prmon; PYTHONPATH=$PWD/kit python3 -m canary landing --payload-seconds 60 -o landing-report.json; rc=$?; echo CANARY-REPORT-BEGIN; cat landing-report.json; echo CANARY-REPORT-END; exit $rc",
+  "exec": "python3 evgen_job_dispatcher.py canary 60",
   "site": "%QUEUE%",
   "prodSourceLabel": "test",
   "processingType": "canary",

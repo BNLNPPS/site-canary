@@ -43,17 +43,19 @@ of the hosted deployment.
 
 ## Canary page
 
-The packaged app serves the Canary page (`canary.store.views`,
-templates under `canary/`), mounted in the System pulldown of the
-swf-monitor navigation. It is public read-only, matching the System
-Status page. The installation adds:
+The packaged app serves the canary page (`canary.store.views`,
+templates under `canary/`): the site health table leading, probe
+management below, at the `probes/` path; the canary root path
+redirects to it. The health table is public read-only, matching the
+System Status page; probe controls are direct-face writes. The
+installation adds:
 
 - `canary.store` to `INSTALLED_APPS`;
 - `path('canary/', include('canary.store.urls'))` in the URL
   configuration;
 - a `System` pulldown entry
-  (`<a href="{% url 'canary:canary_page' %}">Canary</a>`) in the base
-  template, with `active_nav` wiring;
+  (`<a href="{% url 'canary:probes_page' %}">Canary probes</a>`) in the
+  base template, with `active_nav` wiring;
 - the canary queue-state fills (healthy, degraded, failing,
   insufficient, unknown), carried page-scoped until promoted to
   `state-colors.css`.
@@ -77,8 +79,11 @@ standing installation on the swf-testbed host (`pandaserver02`).
   per-queue results reproduce the July 2026 profile in
   PANDA_USER_JOBS.md where the windows overlap.
 - `canary.store` is in the monitor's `INSTALLED_APPS`; the `canary_*`
-  tables live in `swfdb`. The Canary page is mounted at `/canary/` in
-  the System pulldown, with the health fills in `state-colors.css`.
+  tables live in `swfdb`. The canary page is mounted at
+  `/canary/probes/` (the `/canary/` root redirects there), reached
+  from the System and Sites pulldowns, with the health fills in
+  `state-colors.css`. The queue list's canary cells link to per-queue
+  probe run histories.
 - **The canary agent** (`swf-monitor/agents/canary_agent.py`, namespace
   `canary` from `agents/canary.toml`) is the supervised singleton in
   the prod-ops pattern: systemd unit `canary-agent.service`
@@ -92,6 +97,14 @@ standing installation on the swf-testbed host (`pandaserver02`).
   `scripts/enqueue-ops-message.py --queue /queue/canary.ops
   --namespace canary`; the same command by hand is the on-demand
   trigger.
+- Probes: an hourly cron (minute 20) enqueues `probe_dispatch` the
+  same way; the agent's handler runs `canary probe-dispatch`, and the
+  page's Run now control enqueues the same message for one queue. The
+  submission doer runs from the development checkout
+  (`CANARY_PROBE_SUBMIT_CMD` overrides), submits with the platform's
+  panda-client environment and submission kernel, and ships the
+  production in-job runner from the platform scripts
+  (`CANARY_DISPATCHER` overrides).
 - Configuration: `CANARY_PANDA_DSN` and `CANARY_DB_*` (the swfdb
   store) in `/opt/swf-monitor/config/env/production.env` for the
   agent, and in `~/.env` for development use.
