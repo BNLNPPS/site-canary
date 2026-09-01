@@ -84,6 +84,32 @@ def cmd_evaluate(args):
     return 0
 
 
+def cmd_probe_dispatch(args):
+    from datetime import datetime, timezone as dt_timezone
+
+    from .store.standalone import setup_django
+
+    setup_django()
+    from . import probe
+    now = datetime.now(dt_timezone.utc)
+    advanced = probe.refresh_run_statuses()
+    results = probe.dispatch(
+        now, queue_names=args.queue or None, force=bool(args.queue))
+    if args.json:
+        print(json.dumps({'advanced': advanced, 'results': results},
+                         indent=2))
+    else:
+        print(f'run statuses advanced: {advanced}')
+        if not results:
+            print('no queues due')
+        for r in results:
+            extra = (f" jediTaskID={r['jeditaskid']}"
+                     if r.get('jeditaskid') else '')
+            print(f"{r['queue']:<32} {r['outcome']}{extra}")
+    return 0 if all(r['outcome'] in ('submitted',) for r in results) \
+        or not results else 1
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog='canary',
@@ -132,6 +158,17 @@ def main(argv=None):
     p_eval.add_argument('--json', action='store_true',
                         help='JSON output instead of table')
     p_eval.set_defaults(func=cmd_evaluate)
+
+    p_probe = subparsers.add_parser(
+        'probe-dispatch',
+        help='advance probe-run statuses and submit probes for due '
+             'queues (or forced named queues)')
+    p_probe.add_argument('--queue', action='append',
+                         help='force a probe for this queue now '
+                              '(repeatable); default: the due queues')
+    p_probe.add_argument('--json', action='store_true',
+                         help='JSON output')
+    p_probe.set_defaults(func=cmd_probe_dispatch)
 
     args = parser.parse_args(argv)
     if args.command is None:

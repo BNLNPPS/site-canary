@@ -234,3 +234,45 @@ class LandingReport(models.Model):
 
     def __str__(self):
         return f'{self.site.name}@{self.landed_at.isoformat()}'
+
+
+class ProbeRun(models.Model):
+    """One dispatched probe task against one queue — the record behind
+    the Canary probes page: schedule state, the per-queue run history,
+    and the collection ladder's pickup list."""
+
+    class Status(models.TextChoices):
+        SUBMITTED = 'submitted'
+        FAILED_SUBMIT = 'failed_submit'
+        FINISHED = 'finished'
+        FAILED = 'failed'
+        COLLECTED = 'collected'
+
+    class Trigger(models.TextChoices):
+        AUTO = 'auto'
+        MANUAL = 'manual'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4,
+                          editable=False)
+    queue = models.ForeignKey(Queue, on_delete=models.PROTECT,
+                              related_name='probe_runs')
+    jeditaskid = models.BigIntegerField(null=True, blank=True)
+    trigger = models.CharField(max_length=16, choices=Trigger.choices,
+                               default=Trigger.AUTO)
+    status = models.CharField(max_length=16, choices=Status.choices,
+                              default=Status.SUBMITTED)
+    submitted_at = models.DateTimeField()
+    data = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    modified_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'canary_probe_run'
+        ordering = ['-submitted_at']
+        indexes = [
+            models.Index(fields=['queue', '-submitted_at'],
+                         name='canary_probe_queue_time_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.queue.name} probe {self.jeditaskid or "unsubmitted"}'

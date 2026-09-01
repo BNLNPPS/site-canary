@@ -62,3 +62,141 @@ def canary_page(request):
         'policy_levels': policy_levels,
         'policy_error': policy_error,
     })
+
+
+def _probe_writes_operable(request):
+    """Probe controls are pandaserver02 actions: login on the direct
+    face. Outside the hosted deployment (no monitor middleware) the
+    controls render disabled."""
+    try:
+        from monitor_app.middleware import is_tunnel_request
+    except Exception:
+        return False
+    return request.user.is_authenticated and not is_tunnel_request(request)
+
+
+def probes_page(request):
+    """Canary probes: one row per probe-configured queue — last run,
+    next auto run, interval, Run now — with the run history one click
+    through."""
+    from canary import probe as probe_mod
+
+    rows = []
+    for queue in probe_mod.configured_queues():
+        config = probe_mod.probe_config(queue)
+        last = probe_mod.last_run(queue)
+        rows.append({
+            'queue': queue,
+            'interval_hours': config['interval_hours'],
+            'last': last,
+            'next_due': probe_mod.next_due(queue, config, last),
+            'runs_count': queue.probe_runs.count(),
+        })
+    enabled_ids = {row['queue'].id for row in rows}
+    candidates = [q for q in Queue.objects.order_by('name')
+                  if q.id not in enabled_ids
+                  and 'test' not in q.name.lower()]
+    return render(request, 'canary/probes.html', {
+        'rows': rows,
+        'candidates': candidates,
+        'operable': _probe_writes_operable(request),
+    })
+
+
+def probe_runs_page(request, queue_name):
+    """The run history of one queue's probe: every dispatched probe
+    task, newest first."""
+    from django.shortcuts import get_object_or_404
+
+    from canary import probe as probe_mod
+
+    queue = get_object_or_404(Queue, name=queue_name)
+    config = probe_mod.probe_config(queue)
+    runs = list(queue.probe_runs.order_by('-submitted_at')[:200])
+    return render(request, 'canary/probe_runs.html', {
+        'queue': queue,
+        'config': config,
+        'runs': runs,
+        'operable': _probe_writes_operable(request),
+    })
+
+
+def probe_config_update(request):
+    """Set a queue's probe interval, enable it, or disable it. A write:
+    login on the direct face."""
+    from django.contrib import messages
+    from django.shortcuts import get_object_or_404, redirect
+    from django.urls import reverse
+
+    url = reverse('canary:probes_page')
+    if request.method != 'POST':
+        return redirect(url)
+    if not _probe_writes_operable(request):
+        messages.error(request, 'Probe configuration is a '
+                                'pandaserver02 action (login required).')
+        return redirect(url)
+    queue = get_object_or_404(Queue, name=request.POST.get('queue', ''))
+    action = request.POST.get('action', 'save')
+    data = dict(queue.data or {})
+    block = dict(data.get('probe') or {})
+    if action == 'disable':
+        block['enabled'] = False
+    else:
+        block['enabled'] = True
+        try:
+            interval = float(request.POST.get('interval_hours', '') or 24)
+        except ValueError:
+            messages.error(request, 'Interval must be a number of hours.')
+            return redirect(url)
+        if interval <= 0:
+            messages.error(request, 'Interval must be positive.')
+            return redirect(url)
+        block['interval_hours'] = interval
+    data['probe'] = block
+    queue.data = data
+    queue.save(update_fields=['data'])
+    messages.success(request, f'Probe configuration saved for {queue.name}.')
+    return redirect(url)
+
+
+def probe_run_now(request):
+    """Queue one immediate probe for a queue through the canary agent.
+    A write: login on the direct face."""
+    import json as _json
+
+    from django.contrib import messages
+    from django.shortcuts import redirect
+    from django.urls import reverse
+
+    url = reverse('canary:probes_page')
+    if request.method != 'POST':
+        return redirect(url)
+    if not _probe_writes_operable(request):
+        messages.error(request, 'Run now is a pandaserver02 action '
+                                '(login required).')
+        return redirect(url)
+    queue_name = (request.POST.get('queue') or '').strip()
+    if not queue_name:
+        messages.error(request, 'No queue named.')
+        return redirect(url)
+    try:
+        from monitor_app.activemq_connection import ActiveMQConnectionManager
+        sent = ActiveMQConnectionManager().send_message(
+            '/queue/canary.ops', _json.dumps({
+                'msg_type': 'probe_dispatch',
+                'namespace': 'canary',
+                'queue': queue_name,
+                'created_by': getattr(request.user, 'username', '') or 'web',
+            }))
+    except Exception as e:
+        logger.error('probe run-now enqueue failed for %s: %s',
+                     queue_name, e)
+        sent = False
+    if sent:
+        messages.success(request,
+                         f'Probe queued for {queue_name} — the run '
+                         f'appears in its history once submitted.')
+    else:
+        messages.error(request, 'Probe trigger could not be queued; '
+                                'the message bus refused it.')
+    return redirect(url)

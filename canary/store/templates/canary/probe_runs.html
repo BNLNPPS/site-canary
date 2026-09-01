@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% load swf_fmt %}
+
+{% block title %}Canary probe runs - {{ queue.name }} - SWF Monitor{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-3">
+  <h2>Canary probe runs — {{ queue.name }}</h2>
+  <p class="text-muted">
+    Interval {{ config.interval_hours }} h ·
+    <a href="{% url 'canary:probes_page' %}">All probes</a> ·
+    <a href="{% url 'monitor_app:epic_queue_detail' queue_name=queue.name %}">Queue page</a>
+  </p>
+
+  {% if runs %}
+  <table class="table table-striped table-bordered table-sm align-middle w-auto swf-sortable">
+    <thead>
+      <tr>
+        <th>Submitted</th>
+        <th>Trigger</th>
+        <th>Status</th>
+        <th>PanDA task</th>
+        <th>Notes</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for run in runs %}
+      <tr>
+        <td>{{ run.submitted_at|fmt_dt }}</td>
+        <td>{{ run.trigger }}</td>
+        <td class="{{ run.status|state_class }}">{{ run.status }}</td>
+        <td>{% if run.jeditaskid %}<a href="{% url 'monitor_app:panda_task_detail' jeditaskid=run.jeditaskid %}">{{ run.jeditaskid }}</a>{% else %}<span class="text-muted">none</span>{% endif %}</td>
+        <td class="small" style="word-break: break-word;">{% if run.data.task_status %}task {{ run.data.task_status }}{% endif %}{% if run.data.error %} {{ run.data.error }}{% endif %}{% if run.data.stderr %} <span class="text-muted">{{ run.data.stderr|truncatechars:200 }}</span>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>This queue's probe has not run yet.</p>
+  {% endif %}
+</div>
+{% endblock %}
