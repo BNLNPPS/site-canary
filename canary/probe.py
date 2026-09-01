@@ -32,12 +32,21 @@ def last_run(queue):
     return queue.probe_runs.order_by('-submitted_at').first()
 
 
+def last_submitted_run(queue):
+    """The most recent run that actually reached PanDA — the schedule
+    anchor. A failed submission never consumes the interval; it
+    retries on the next tick."""
+    return (queue.probe_runs.filter(jeditaskid__isnull=False)
+            .order_by('-submitted_at').first())
+
+
 def next_due(queue, config=None, last=None):
-    """When the queue's next automatic probe is due: the last run plus
-    the interval, or now when it has never been probed."""
+    """When the queue's next automatic probe is due: the last
+    successful submission plus the interval, or now when nothing has
+    ever reached PanDA."""
     config = config or probe_config(queue)
-    last = last or last_run(queue)
-    if last is None:
+    last = last or last_submitted_run(queue)
+    if last is None or last.jeditaskid is None:
         return None
     return last.submitted_at + timedelta(hours=config['interval_hours'])
 
@@ -49,10 +58,10 @@ def due_queues(now):
     due = []
     for queue in configured_queues():
         config = probe_config(queue)
-        last = last_run(queue)
-        if last is not None and last.status == ProbeRun.Status.SUBMITTED:
+        latest = last_run(queue)
+        if latest is not None and latest.status == ProbeRun.Status.SUBMITTED:
             continue
-        due_at = next_due(queue, config, last)
+        due_at = next_due(queue, config, last_submitted_run(queue))
         if due_at is None or due_at <= now:
             due.append(queue)
     return due
