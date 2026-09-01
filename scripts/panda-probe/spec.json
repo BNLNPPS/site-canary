@@ -4,10 +4,10 @@
   "site": "BNL_OSG_EPIC_PROD_1",
   "prodSourceLabel": "test",
   "processingType": "canary",
-  "nJobs": 10,
+  "nJobs": 1,
   "nCore": 1,
   "memory": 2048,
-  "walltimeHours": 0.5,
+  "walltimeHours": 0.084,
   "skipScout": true,
   "containerImage": "/cvmfs/singularity.opensciencegrid.org/eicweb/eic_xl:nightly"
 }
