@@ -1,0 +1,13 @@
+{
+  "outDS": "group.EIC.canary.bnlosg.%STAMP%",
+  "exec": "echo canary probe start; seq=%RNDM=0; if [ ! -d kit ]; then tar xzf canary-kit.tgz; fi; export CANARY_PRMON=$PWD/kit/prmon; PYTHONPATH=$PWD/kit python3 -m canary landing --payload-seconds 60 -o landing-report.json; rc=$?; echo CANARY-REPORT-BEGIN; cat landing-report.json; echo CANARY-REPORT-END; exit $rc",
+  "site": "BNL_OSG_EPIC_PROD_1",
+  "prodSourceLabel": "test",
+  "processingType": "canary",
+  "nJobs": 10,
+  "nCore": 1,
+  "memory": 2048,
+  "walltimeHours": 0.5,
+  "skipScout": true,
+  "containerImage": "/cvmfs/singularity.opensciencegrid.org/eicweb/eic_xl:nightly"
+}

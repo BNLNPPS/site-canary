@@ -13,10 +13,21 @@ WORK="${1:?usage: build-sandbox.sh <workdir>}"
 mkdir -p "${WORK}/kit"
 python3 -m pip install --quiet --target "${WORK}/kit" "${REPO}"
 
-if [ ! -x "${REPO}/.prmon/prmon" ]; then
+PRMON=""
+for candidate in "${REPO}/.prmon/bin/prmon" "${REPO}/.prmon/prmon"; do
+    [ -x "${candidate}" ] && PRMON="${candidate}" && break
+done
+if [ -z "${PRMON}" ]; then
     bash "${REPO}/scripts/fetch_prmon.sh"
+    for candidate in "${REPO}/.prmon/bin/prmon" "${REPO}/.prmon/prmon"; do
+        [ -x "${candidate}" ] && PRMON="${candidate}" && break
+    done
 fi
-cp "${REPO}/.prmon/prmon" "${WORK}/kit/prmon"
+if [ -z "${PRMON}" ]; then
+    echo "prmon binary not found after fetch" >&2
+    exit 1
+fi
+cp "${PRMON}" "${WORK}/kit/prmon"
 chmod +x "${WORK}/kit/prmon"
 
 tar -C "${WORK}" -czf "${WORK}/canary-kit.tgz" kit
