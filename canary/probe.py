@@ -83,16 +83,12 @@ def dispatch(now, queue_names=None, force=False, submit_cmd=None):
     from canary.store.models import ProbeRun, Queue
 
     if submit_cmd is None:
-        # The deployed venv installs the package without scripts/; the
-        # submission doer runs from the repository checkout unless
-        # CANARY_PROBE_SUBMIT_CMD points elsewhere.
-        repo_default = (Path(__file__).resolve().parent.parent
-                        / 'scripts' / 'panda-probe' / 'run.sh')
-        if not repo_default.exists():
-            repo_default = Path('/data/wenauseic/github/site-canary'
-                                '/scripts/panda-probe/run.sh')
-        submit_cmd = os.environ.get('CANARY_PROBE_SUBMIT_CMD',
-                                    str(repo_default))
+        # The submission doer ships inside the package (canary/probe_kit),
+        # so the deployed install runs the release's copy and a checkout
+        # runs its own. CANARY_PROBE_SUBMIT_CMD overrides.
+        submit_cmd = os.environ.get(
+            'CANARY_PROBE_SUBMIT_CMD',
+            str(Path(__file__).resolve().parent / 'probe_kit' / 'run.sh'))
     if force and queue_names:
         targets = list(Queue.objects.filter(name__in=queue_names))
         missing = set(queue_names) - {q.name for q in targets}

@@ -27,4 +27,4 @@ canary = "canary.cli:main"
 include = ["canary*"]
 
 [tool.setuptools.package-data]
-canary = ["policy/*.yaml", "store/templates/canary/*.html"]
+canary = ["policy/*.yaml", "store/templates/canary/*.html", "probe_kit/*"]

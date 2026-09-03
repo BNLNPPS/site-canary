@@ -5,14 +5,17 @@
 # between CANARY-REPORT markers, collectable from the job logs.
 #
 # This is the probe submission doer: the canary agent's dispatch path
-# runs it per due queue, and it remains directly runnable.
+# runs it per due queue, and it remains directly runnable. It ships in
+# the package (canary/probe_kit), so the deployed install runs the
+# release's copy; the sandbox and the submission kernel come from the
+# release as well (build-sandbox.sh, SWF_MONITOR_RELEASE overrides).
 #
 # Usage: bash run.sh [queue] [spec.json]
 # Prints the submit script's output; success includes jediTaskID=<id>.
-# Requires the cached panda-client OIDC token (~/pclient/run/setup.sh)
-# and the swf-monitor tree for the submit script.
+# Requires the cached panda-client OIDC token (~/pclient/run/setup.sh).
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
+RELEASE="${SWF_MONITOR_RELEASE:-/opt/swf-monitor/current}"
 QUEUE="${1:-BNL_OSG_EPIC_PROD_1}"
 SPEC="${2:-${HERE}/spec.json}"
 QTAG="$(echo "${QUEUE}" | tr 'A-Z' 'a-z')"
@@ -31,5 +34,5 @@ grep outDS "${WORK}/spec.json" >&2
 
 source ~/pclient/run/setup.sh
 export PANDA_AUTH_VO=EIC.production
-python3 /data/wenauseic/github/swf-monitor/scripts/evgen_panda_submit.py \
+python3 "${RELEASE}/scripts/evgen_panda_submit.py" \
     --spec "${WORK}/spec.json" --workdir "${WORK}/sandbox"

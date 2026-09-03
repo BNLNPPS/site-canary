@@ -104,11 +104,14 @@ standing installation on the swf-testbed host (`pandaserver02`).
 - Probes: an hourly cron (minute 20) enqueues `probe_dispatch` the
   same way; the agent's handler runs `canary probe-dispatch`, and the
   page's Run now control enqueues the same message for one queue. The
-  submission doer runs from the development checkout
-  (`CANARY_PROBE_SUBMIT_CMD` overrides), submits with the platform's
-  panda-client environment and submission kernel, and ships the
-  production in-job runner from the platform scripts
-  (`CANARY_DISPATCHER` overrides).
+  submission doer ships in the package (`canary/probe_kit/`) and runs
+  from the deployed release: the sandbox vendors the canary wheel the
+  deploy builds beside the release, the submission kernel and the
+  production in-job runner are the release's scripts, and prmon is
+  cached under the shared tree. A canary change reaches probes only
+  through a full deploy. For a run by hand against another tree,
+  `CANARY_PROBE_SUBMIT_CMD`, `CANARY_KIT_SOURCE`, `CANARY_DISPATCHER`,
+  `CANARY_PRMON`, and `SWF_MONITOR_RELEASE` override.
 - Configuration: `CANARY_PANDA_DSN` and `CANARY_DB_*` (the swfdb
   store) in `/opt/swf-monitor/config/env/production.env` for the
   agent, and in `~/.env` for development use.
