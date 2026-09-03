@@ -4,6 +4,7 @@
   "site": "%QUEUE%",
   "prodSourceLabel": "test",
   "processingType": "canary",
+  "userName": "canary",
   "nJobs": 1,
   "nCore": 1,
   "memory": 2048,

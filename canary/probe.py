@@ -136,24 +136,30 @@ def dispatch(now, queue_names=None, force=False, submit_cmd=None):
 def refresh_run_statuses():
     """Advance submitted runs from the PanDA task record: finished and
     failed terminal states land on the run; anything else stays
-    submitted. Uses the panda connection of the host deployment."""
-    from django.db import connections
-
+    submitted. Reads PanDA through CANARY_PANDA_DSN, as the assessor's
+    panda source does, so the refresh works under the package's own
+    settings (the CLI on the agent) as well as the host deployment's."""
+    from canary.config import PANDA_DSN
     from canary.store.models import ProbeRun
 
     open_runs = list(ProbeRun.objects.filter(
         status=ProbeRun.Status.SUBMITTED, jeditaskid__isnull=False))
     if not open_runs:
         return 0
+    if not PANDA_DSN:
+        logger.error('probe status refresh: CANARY_PANDA_DSN is not set; '
+                     '%d open runs left as submitted', len(open_runs))
+        return 0
     ids = [r.jeditaskid for r in open_runs]
-    marks = ','.join(['%s'] * len(ids))
     try:
-        with connections['panda'].cursor() as cursor:
-            cursor.execute(
-                'SELECT "jeditaskid", "status" FROM '
-                '"doma_panda"."jedi_tasks" '
-                f'WHERE "jeditaskid" IN ({marks})', ids)
-            states = dict(cursor.fetchall())
+        import psycopg
+        with psycopg.connect(PANDA_DSN) as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    'SELECT "jeditaskid", "status" FROM '
+                    '"doma_panda"."jedi_tasks" '
+                    'WHERE "jeditaskid" = ANY(%s)', (ids,))
+                states = dict(cursor.fetchall())
     except Exception as e:
         logger.error('probe status refresh: PanDA task-state query '
                      'failed for %d open runs: %s', len(open_runs), e)
