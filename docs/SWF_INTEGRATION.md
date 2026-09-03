@@ -88,7 +88,11 @@ standing installation on the swf-testbed host (`pandaserver02`).
   `canary` from `agents/canary.toml`) is the supervised singleton in
   the prod-ops pattern: systemd unit `canary-agent.service`
   (hand-installed in `/etc/systemd/system/`, `Restart=always`,
-  deliberate-shutdown exit 100), consuming `/queue/canary.ops`. Its
+  deliberate-shutdown exit 100, `WorkingDirectory=/data/swf-tmp`: a
+  stable path, since the deploy symlink resolves once at start and a
+  later deploy would leave the process in a deleted release; the
+  swf-monitor deploy script restarts the unit on every deploy),
+  consuming `/queue/canary.ops`. Its
   `assess_refresh` handler runs `canary assess --panda --write` then
   `canary evaluate --write` as bounded subprocesses on the worker
   pool, and publishes a `canary_assess_complete` event to
