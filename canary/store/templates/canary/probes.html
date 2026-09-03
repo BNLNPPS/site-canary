@@ -64,6 +64,45 @@
     reports back. Probes submit automatically on each queue's interval;
     Run now queues one immediately.
   </p>
+  {% if queued %}
+  <p id="probe-live" class="fw-semibold">Probe queued for {{ queued }}: waiting for the agent to build the sandbox and submit&hellip;</p>
+  <script>
+  // The Run now outcome, live: the agent pushes canary_probe_dispatch_complete
+  // over the relay when its dispatch cycle ends; the page then reloads so the
+  // queue's row shows the run (submitted with its task, or failed_submit with
+  // the reason in the run history). See docs/IMPLEMENTATION.md § Probes.
+  (function () {
+    const queued = "{{ queued|escapejs }}";
+    const el = document.getElementById('probe-live');
+    const plain = window.location.pathname;
+    const historyUrl = "{% url 'canary:probe_runs' queue_name=queued %}";
+    const es = new EventSource('{{ request.META.SCRIPT_NAME }}/api/messages/stream/?msg_types=canary_probe_dispatch_complete');
+    const timer = setTimeout(function () {
+      es.close();
+      el.textContent = 'No completion from the agent after 15 minutes; check the run history.';
+      el.insertAdjacentHTML('beforeend', ' <a href="' + historyUrl + '">Run history</a>');
+    }, 15 * 60 * 1000);
+    es.addEventListener('canary_probe_dispatch_complete', function (ev) {
+      let d = {}; try { d = JSON.parse(ev.data); } catch (_) { return; }
+      if (d.queue && d.queue !== queued) return;
+      clearTimeout(timer); es.close();
+      if (d.ok) {
+        el.textContent = 'Dispatch for ' + queued + ' finished; showing the run.';
+        window.location.replace(plain);
+      } else {
+        el.textContent = 'Dispatch for ' + queued + ' failed; the reason is in the run history.';
+        el.insertAdjacentHTML('beforeend', ' <a href="' + historyUrl + '">Run history</a>');
+      }
+    });
+    es.onerror = function () {
+      // EventSource reconnects on its own; only a closed stream is a loss.
+      if (es.readyState === EventSource.CLOSED) {
+        el.textContent = 'Probe queued for ' + queued + '; the live stream closed, reload to see the run.';
+      }
+    };
+  })();
+  </script>
+  {% endif %}
 
   {% if rows %}
   <table class="table table-striped table-bordered table-sm align-middle w-auto swf-sortable">

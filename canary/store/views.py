@@ -110,6 +110,9 @@ def probes_page(request):
         'rows': rows,
         'candidates': candidates,
         'operable': _probe_writes_operable(request),
+        # A just-queued Run now: the page waits on the agent's completion
+        # event for this queue and reloads to show the run's outcome.
+        'queued': (request.GET.get('queued') or '').strip(),
     })
     return render(request, 'canary/probes.html', context)
 
@@ -204,10 +207,13 @@ def probe_run_now(request):
                      queue_name, e)
         sent = False
     if sent:
+        from urllib.parse import urlencode
         messages.success(request,
-                         f'Probe queued for {queue_name} — the run '
-                         f'appears in its history once submitted.')
-    else:
-        messages.error(request, 'Probe trigger could not be queued; '
-                                'the message bus refused it.')
+                         f'Probe queued for {queue_name} — the outcome '
+                         f'shows here when the agent reports.')
+        # The page opens the completion stream for this queue and reloads
+        # on the agent's canary_probe_dispatch_complete event.
+        return redirect(f'{url}?{urlencode({"queued": queue_name})}')
+    messages.error(request, 'Probe trigger could not be queued; '
+                            'the message bus refused it.')
     return redirect(url)

@@ -219,4 +219,10 @@ The probe management section of the canary page lists each configured
 queue with its last run, next automatic run, editable interval, run
 count, and Run now and Disable controls, with an enable form for
 unconfigured queues; each queue links to its probe run history. The
-controls are writes and follow the deployment's write gating.
+controls are writes and follow the deployment's write gating. Run now
+reports live: the page opens the relay stream for the agent's
+`canary_probe_dispatch_complete` event and, when it arrives for the
+queue, reloads so the row shows the run, submitted with its task or
+failed with the reason in the run history; a failed dispatch says so
+in place, and a cycle that reports nothing within fifteen minutes is
+stated as such.
