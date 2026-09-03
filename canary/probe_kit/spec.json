@@ -11,5 +11,5 @@
   "walltimeHours": 0.084,
   "skipScout": true,
   "maxAttempt": 1,
-  "containerImage": "/cvmfs/singularity.opensciencegrid.org/eicweb/eic_xl:nightly"
+  "containerImage": "/cvmfs/singularity.opensciencegrid.org/eicweb/eic_xl:26.07.0-stable"
 }

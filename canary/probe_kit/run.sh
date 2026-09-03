@@ -29,8 +29,14 @@ bash "${HERE}/build-sandbox.sh" "${WORK}/sandbox" >&2
 rm -f "${WORK}/sandbox/canary-kit.tgz"
 sed -e "s/%STAMP%/${STAMP}/" -e "s/%QUEUE%/${QUEUE}/" \
     -e "s/%QTAG%/${QTAG}/" "${SPEC}" > "${WORK}/spec.json"
+# The container: the current campaign's production image as the dispatch
+# resolved it from PCS (CANARY_CONTAINER_IMAGE); unset, the spec's own
+# containerImage stands as the fallback.
+if [ -n "${CANARY_CONTAINER_IMAGE:-}" ]; then
+    sed -i -e "s#\"containerImage\": \"[^\"]*\"#\"containerImage\": \"${CANARY_CONTAINER_IMAGE}\"#" "${WORK}/spec.json"
+fi
 echo "spec: ${WORK}/spec.json" >&2
-grep outDS "${WORK}/spec.json" >&2
+grep -E 'outDS|containerImage' "${WORK}/spec.json" >&2
 
 source ~/pclient/run/setup.sh
 export PANDA_AUTH_VO=EIC.production

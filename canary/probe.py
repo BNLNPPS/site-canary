@@ -4,6 +4,7 @@ Queue rows (``data['probe']``); the agent's dispatch handler and the
 probes page both read through here.
 """
 import logging
+import os
 from datetime import timedelta
 
 logger = logging.getLogger('canary.probe')
@@ -97,15 +98,24 @@ def dispatch(now, queue_names=None, force=False, submit_cmd=None):
     else:
         targets = due_queues(now)
         results = []
+    # The probe runs the current campaign's production container, as PCS
+    # records it, so a probe measures the site and not the nightly image;
+    # unresolved, the submit script's own fallback applies and the run says so.
+    container, container_note = resolve_probe_container()
+    env = dict(os.environ)
+    if container:
+        env['CANARY_CONTAINER_IMAGE'] = container
     for queue in targets:
         run_row = ProbeRun.objects.create(
             queue=queue, submitted_at=now,
             trigger=(ProbeRun.Trigger.MANUAL if force
-                     else ProbeRun.Trigger.AUTO))
+                     else ProbeRun.Trigger.AUTO),
+            data={'container': container or '',
+                  'container_note': container_note})
         try:
             p = subprocess.run(['bash', submit_cmd, queue.name],
                                capture_output=True, text=True,
-                               timeout=600)
+                               timeout=600, env=env)
         except subprocess.TimeoutExpired:
             run_row.status = ProbeRun.Status.FAILED_SUBMIT
             run_row.data = {'error': 'submission timed out after 600s'}
@@ -120,13 +130,54 @@ def dispatch(now, queue_names=None, force=False, submit_cmd=None):
                             'jeditaskid': run_row.jeditaskid})
         else:
             run_row.status = ProbeRun.Status.FAILED_SUBMIT
-            run_row.data = {'rc': p.returncode,
-                            'stdout': (p.stdout or '')[-2000:],
-                            'stderr': (p.stderr or '')[-2000:]}
+            run_row.data = dict(run_row.data or {},
+                                rc=p.returncode,
+                                stdout=(p.stdout or '')[-2000:],
+                                stderr=(p.stderr or '')[-2000:])
             run_row.save(update_fields=['status', 'data', 'modified_at'])
             results.append({'queue': queue.name, 'outcome': 'failed',
                             'rc': p.returncode})
     return results
+
+
+def resolve_probe_container():
+    """The current campaign's production container as PCS records it:
+    the campaign from the campaign status API, the container from that
+    campaign's Standard Production configuration. Returns (image, note);
+    image is '' when the lookup fails, with the reason in the note, and
+    the submit script's fallback then applies. Never raises."""
+    import json
+    import ssl
+    import urllib.request
+
+    base = (os.environ.get('SWF_MONITOR_URL') or '').rstrip('/')
+    if not base:
+        return '', 'SWF_MONITOR_URL not set; submit script fallback'
+    ctx = ssl.create_default_context()
+    if base.startswith('https://localhost'):
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+
+    def _get(path):
+        with urllib.request.urlopen(base + path, context=ctx, timeout=20) as r:
+            return json.load(r)
+
+    try:
+        campaign = str(_get('/pcs/api/campaigns/status/').get('campaign') or '')
+        if not campaign:
+            return '', 'no current campaign in the status API; fallback'
+        rows = _get('/pcs/api/prod-configs/?search='
+                    + urllib.request.quote(f'{campaign} Standard Production'))
+        rows = rows if isinstance(rows, list) else rows.get('results') or []
+        for row in rows:
+            name = str(row.get('name') or '')
+            if name.startswith(campaign) and 'Standard Production' in name \
+                    and row.get('container_image'):
+                return row['container_image'], f'{name} (PCS)'
+        return '', f'no Standard Production config with a container for {campaign}; fallback'
+    except Exception as e:                                      # noqa: BLE001
+        logger.warning('probe container lookup failed: %s', e)
+        return '', f'PCS lookup failed ({type(e).__name__}); fallback'
 
 
 def refresh_run_statuses():

@@ -111,7 +111,10 @@ standing installation on the swf-testbed host (`pandaserver02`).
   cached under the shared tree. A canary change reaches probes only
   through a full deploy. For a run by hand against another tree,
   `CANARY_PROBE_SUBMIT_CMD`, `CANARY_KIT_SOURCE`, `CANARY_DISPATCHER`,
-  `CANARY_PRMON`, and `SWF_MONITOR_RELEASE` override.
+  `CANARY_PRMON`, and `SWF_MONITOR_RELEASE` override. The probe's
+  container is the current campaign's production image resolved from
+  PCS through `SWF_MONITOR_URL` at dispatch (`CANARY_CONTAINER_IMAGE`
+  overrides); the spec's `containerImage` is the fallback.
 - Configuration: `CANARY_PANDA_DSN` and `CANARY_DB_*` (the swfdb
   store) in `/opt/swf-monitor/config/env/production.env` for the
   agent, and in `~/.env` for development use.

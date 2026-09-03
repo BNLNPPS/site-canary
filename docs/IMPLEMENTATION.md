@@ -203,7 +203,13 @@ The probe task is a single landing-kit job against the target queue.
 `canary/probe_kit/build-sandbox.sh` vendors the canary package, as the
 wheel the deploy builds beside the release, and the prmon binary into
 `kit/` beside the release's production in-job runner
-(`CANARY_DISPATCHER` overrides); one runner serves production and
+(`CANARY_DISPATCHER` overrides). The job runs the current campaign's
+production container as PCS records it (the campaign from the campaign
+status API, the container from its Standard Production configuration,
+read through `SWF_MONITOR_URL` at dispatch), so a probe measures the
+site and not the nightly image; when PCS cannot be reached the spec's
+own `containerImage` is the fallback, and the run records which
+container it used and why. One runner serves production and
 probe jobs, and the task's exec invokes its canary mode as a single
 command. The job fingerprints its node, runs the prmon-wrapped sample
 payload, and delivers the landing report on two paths: embedded in
