@@ -109,6 +109,7 @@
     <thead>
       <tr>
         <th>Queue</th>
+        <th title="What the last completed probe delivered">Health</th>
         <th title="The most recent probe run and its state">Last probe</th>
         <th title="Last run plus the interval; due now when empty">Next auto run</th>
         <th title="Automatic probe interval, hours">Interval (h)</th>
@@ -121,8 +122,9 @@
       <tr>
         <td><a href="{% url 'canary:probe_runs' queue_name=r.queue.name %}"
                title="Run history of this queue's probe">{{ r.queue.name }}</a></td>
+        <td class="{{ r.health|state_class }}" title="{{ r.health_reason }}">{{ r.health }}</td>
         <td>{% if r.last %}
-            <span class="{{ r.last.status|state_class }}">{{ r.last.status }}</span>
+            {% if r.last_phase %}<span class="{{ r.last_phase_state|state_class }}">{{ r.last_phase }}</span>{% else %}<span class="{{ r.last.status|state_class }}">{{ r.last.status }}</span>{% endif %}
             {{ r.last.submitted_at|fmt_dt }}
             {% if r.last.jeditaskid %}<a href="{% url 'monitor_app:panda_task_detail' jeditaskid=r.last.jeditaskid %}">{{ r.last.jeditaskid }}</a>{% endif %}
             {% if r.last_wait %}<span class="text-muted" title="From job creation to its start at the site">wait {{ r.last_wait }}</span>{% endif %}

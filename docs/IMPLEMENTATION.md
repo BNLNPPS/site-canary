@@ -252,9 +252,16 @@ node, and report summary beside its status and task; the probes page
 shows the last run's wait.
 
 The probe management section of the canary page lists each configured
-queue with its last run, next automatic run, editable interval, run
-count, and Run now and Disable controls, with an enable form for
-unconfigured queues; each queue links to its probe run history. The
+queue with its probe health, last run, next automatic run, editable
+interval, run count, and Run now and Disable controls, with an enable
+form for unconfigured queues; each queue links to its probe run
+history. Probe health is what the last completed probe delivered, in
+the canary state vocabulary: healthy for a collected report with kit
+exit 0, degraded for a report with a non-zero kit exit or a finished
+job without a report, failing for a failed job, unknown when no probe
+has completed or the last submission failed, with the reason as the
+cell title. A run still open shows its phase and elapsed time, waiting
+since submission or running since its start. The
 controls are writes and follow the deployment's write gating. Run now
 reports live: the page opens the relay stream for the agent's
 `canary_probe_dispatch_complete` event and, when it arrives for the

@@ -11,7 +11,7 @@ from django.shortcuts import render
 from ..assessor.run import format_duration
 from ..config import POLICY_PATH
 from ..policy.loader import PolicyError, load_policy
-from .models import PassiveSample, Queue
+from .models import PassiveSample, ProbeRun, Queue
 
 logger = logging.getLogger('canary.store.views')
 
@@ -94,13 +94,22 @@ def probes_page(request):
     for queue in probe_mod.configured_queues():
         config = probe_mod.probe_config(queue)
         last = probe_mod.last_run(queue)
+        completed = (queue.probe_runs
+                     .exclude(status=ProbeRun.Status.SUBMITTED)
+                     .order_by('-submitted_at').first())
+        health, health_reason = _probe_health(completed)
+        phase, phase_state = _run_phase(last)
         rows.append({
             'queue': queue,
             'interval_hours': config['interval_hours'],
             'last': last,
+            'last_phase': phase,
+            'last_phase_state': phase_state,
             'last_wait': (format_duration((last.data or {}).get('wait_s'))
                           if last and (last.data or {}).get('wait_s') is not None
                           else ''),
+            'health': health,
+            'health_reason': health_reason,
             'next_due': probe_mod.next_due(queue, config, last),
             'runs_count': queue.probe_runs.count(),
         })
@@ -118,6 +127,50 @@ def probes_page(request):
         'queued': (request.GET.get('queued') or '').strip(),
     })
     return render(request, 'canary/probes.html', context)
+
+
+def _probe_health(run):
+    """A queue's probe health: what its last completed probe delivered,
+    in the canary state vocabulary, with the reason for the cell title.
+    A failed submission never reached the site and says nothing about
+    it."""
+    if run is None:
+        return 'unknown', 'no completed probe'
+    data = run.data or {}
+    if run.status == ProbeRun.Status.COLLECTED:
+        kit = data.get('kit_exit_code')
+        if kit in (0, '0'):
+            return 'healthy', 'landing report collected, kit exit 0'
+        return 'degraded', f'landing report collected, kit exit {kit}'
+    if run.status == ProbeRun.Status.FINISHED:
+        return 'degraded', (data.get('collect_note')
+                            or 'finished without a landing report')
+    if run.status == ProbeRun.Status.FAILED:
+        errors = data.get('errors') or {}
+        first = next(iter(errors.values()), None) or {}
+        reason = (first.get('diag') or data.get('task_status')
+                  or 'probe job failed')
+        return 'failing', str(reason)[:200]
+    if run.status == ProbeRun.Status.FAILED_SUBMIT:
+        return 'unknown', 'last submission failed; no probe reached the site'
+    return 'unknown', str(run.status)
+
+
+def _run_phase(run):
+    """For a run still open, where it is and for how long: waiting at
+    the site since submission, or running since its start. Empty for a
+    completed run, whose status speaks for itself."""
+    from django.utils import timezone
+    from django.utils.dateparse import parse_datetime
+    if run is None or run.status != ProbeRun.Status.SUBMITTED:
+        return '', ''
+    data = run.data or {}
+    now = timezone.now()
+    started = parse_datetime(data.get('started_at') or '')
+    if started is not None:
+        return f'running {format_duration((now - started).total_seconds())}', 'running'
+    return (f'waiting {format_duration((now - run.submitted_at).total_seconds())}',
+            'waiting')
 
 
 def probe_runs_page(request, queue_name):
