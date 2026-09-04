@@ -92,22 +92,29 @@ def cmd_probe_dispatch(args):
     setup_django()
     from . import probe
     now = datetime.now(dt_timezone.utc)
-    advanced = probe.refresh_run_statuses()
-    results = probe.dispatch(
-        now, queue_names=args.queue or None, force=bool(args.queue))
+    collected = probe.collect_run_outcomes()
+    if args.collect_only:
+        results = []
+    else:
+        results = probe.dispatch(
+            now, queue_names=args.queue or None, force=bool(args.queue))
     if args.json:
-        print(json.dumps({'advanced': advanced, 'results': results},
+        print(json.dumps({'collected': collected, 'results': results},
                          indent=2))
     else:
-        print(f'run statuses advanced: {advanced}')
-        if not results:
+        print('collection: ' + ', '.join(
+            f'{k} {v}' for k, v in collected.items()))
+        if args.collect_only:
+            pass
+        elif not results:
             print('no queues due')
         for r in results:
             extra = (f" jediTaskID={r['jeditaskid']}"
                      if r.get('jeditaskid') else '')
             print(f"{r['queue']:<32} {r['outcome']}{extra}")
-    return 0 if all(r['outcome'] in ('submitted',) for r in results) \
-        or not results else 1
+    submissions_ok = (all(r['outcome'] in ('submitted',) for r in results)
+                      or not results)
+    return 0 if submissions_ok and not collected['errors'] else 1
 
 
 def main(argv=None):
@@ -161,11 +168,13 @@ def main(argv=None):
 
     p_probe = subparsers.add_parser(
         'probe-dispatch',
-        help='advance probe-run statuses and submit probes for due '
-             'queues (or forced named queues)')
+        help='collect the outcomes of open probe runs, then submit probes '
+             'for due queues (or forced named queues)')
     p_probe.add_argument('--queue', action='append',
                          help='force a probe for this queue now '
                               '(repeatable); default: the due queues')
+    p_probe.add_argument('--collect-only', action='store_true',
+                         help='collect outcomes of open runs; submit nothing')
     p_probe.add_argument('--json', action='store_true',
                          help='JSON output')
     p_probe.set_defaults(func=cmd_probe_dispatch)

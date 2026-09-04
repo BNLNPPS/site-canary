@@ -25,11 +25,13 @@ of the hosted deployment.
 
 ## Writers
 
-- Landing reports reach the store through the collection ladder
-  (DESIGN.md): initially the platform's authenticated REST ingress;
-  heartbeat-attached and file-staged collection follow in later
-  increments. Ingest deduplicates by node environment under horizontal
-  identity.
+- Probe landing reports reach the store from PanDA job metadata: the
+  pilot lifts the job's `jobReport.json` into the PanDA metatable, and
+  the canary agent's dispatch cycle collects it through
+  `CANARY_PANDA_DSN` (IMPLEMENTATION.md, Collection). The platform's
+  authenticated REST ingress and file-staged collection remain the
+  ladder's other rungs (DESIGN.md), for riders. Ingest deduplicates by
+  node environment under horizontal identity.
 - The passive assessor and policy evaluator (PLAN.md increments 4
   and 6) run as standalone agent processes on the platform host,
   following the platform's prod-ops agent pattern. The assessor's live
@@ -102,7 +104,8 @@ standing installation on the swf-testbed host (`pandaserver02`).
   --namespace canary`; the same command by hand is the on-demand
   trigger.
 - Probes: an hourly cron (minute 20) enqueues `probe_dispatch` the
-  same way; the agent's handler runs `canary probe-dispatch`, and the
+  same way; the agent's handler runs `canary probe-dispatch`, which
+  collects the outcomes of open runs before submitting, and the
   page's Run now control enqueues the same message for one queue. The
   submission doer ships in the package (`canary/probe_kit/`) and runs
   from the deployed release: the sandbox vendors the canary wheel the

@@ -192,12 +192,13 @@ submission that reached PanDA: a failed submission does not consume
 the interval and retries on the next dispatch cycle, and a queue with
 a run still awaiting its outcome is not probed again.
 
-`canary probe-dispatch [--queue NAME ...] [--json]` advances open run
-statuses from the PanDA task records, then submits probes for due
-queues (or immediately for named queues) through the submission doer,
-recording one `ProbeRun` per attempt with trigger auto or manual. A
-failed submission is recorded on its run with the doer output, never
-raised past the dispatch loop.
+`canary probe-dispatch [--queue NAME ...] [--collect-only] [--json]`
+collects the outcomes of open runs (below), then submits probes for
+due queues (or immediately for named queues) through the submission
+doer, recording one `ProbeRun` per attempt with trigger auto or
+manual. A failed submission is recorded on its run with the doer
+output, never raised past the dispatch loop; `--collect-only` runs the
+collection alone.
 
 The probe task is a single landing-kit job against the target queue.
 `canary/probe_kit/build-sandbox.sh` vendors the canary package, as the
@@ -220,6 +221,35 @@ from the job log. Output goes to `group.EIC.canary.<queue>.<stamp>`
 with processing type `canary`. The task allows one job attempt
 (`maxAttempt` 1): a failed landing is a failed probe, not a job PanDA
 retries until the signal is lost.
+
+### Collection
+
+Collection (`canary.probe.collect_run_outcomes`) brings every open run
+up to date from PanDA at the start of each dispatch cycle. An open run
+is a submitted one, or a finished one whose report has not been
+collected. The run's job supplies the landing facts recorded on the
+run: the landed site (PanDA's destination site for a pool queue, else
+the queue's mapped site, else the queue name), the node, the
+creation-to-start wait, the run time, and every non-zero error
+component. A job that has started but not ended records its wait and
+the run stays submitted. A finished job's metadata carries the landing
+report, since the pilot ships `jobReport.json` whole into the PanDA
+metatable; the report is ingested with source probe under the landed
+site, and the run becomes `collected`, recording the report id, the
+fingerprint hash, the kit exit code, CVMFS reachability per repository,
+and GPU presence. A finished job without a report, or a report the
+store rejects, leaves the run `finished` with the reason logged as an
+error. A failed job fails the run with its error components; PanDA
+keeps metadata only for finished jobs, so a failed probe's evidence is
+its error components and the report markers in its log. A task with no
+job record follows the task state. Collection reads PanDA through
+`CANARY_PANDA_DSN`; a failure is recorded on the run and logged, never
+raised past the loop, and the cycle's collection counts are reported
+with the dispatch results.
+
+The run history page shows each run's wait, run time, landed site and
+node, and report summary beside its status and task; the probes page
+shows the last run's wait.
 
 The probe management section of the canary page lists each configured
 queue with its last run, next automatic run, editable interval, run

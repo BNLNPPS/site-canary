@@ -157,6 +157,12 @@ Verdicts act on PanDA queue status with action-stream provenance
 records; the dedicated global-shares probe leaf; the first probe jobs
 built from real ePIC payloads, carrying the landing kit.
 
+**Report collection (done).** Probe landing reports are collected from
+PanDA job metadata at each dispatch cycle and ingested into the map
+under the landed site, with the run's creation-to-start wait, run
+time, node, and error components recorded on the probe run
+(IMPLEMENTATION.md, Collection).
+
 **Node I/O check.** A probe check class for the pilot working
 filesystem: a bounded write, fsync, and read-back on the pilot work
 directory (`/pscratch` at NERSC_Perlmutter_epic) with latency and

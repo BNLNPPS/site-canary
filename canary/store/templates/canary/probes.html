@@ -125,6 +125,7 @@
             <span class="{{ r.last.status|state_class }}">{{ r.last.status }}</span>
             {{ r.last.submitted_at|fmt_dt }}
             {% if r.last.jeditaskid %}<a href="{% url 'monitor_app:panda_task_detail' jeditaskid=r.last.jeditaskid %}">{{ r.last.jeditaskid }}</a>{% endif %}
+            {% if r.last_wait %}<span class="text-muted" title="From job creation to its start at the site">wait {{ r.last_wait }}</span>{% endif %}
             {% else %}<span class="text-muted">never probed</span>{% endif %}</td>
         <td>{% if r.next_due %}{{ r.next_due|fmt_dt }}{% else %}<span class="swf-no-target">due now</span>{% endif %}</td>
         <td>

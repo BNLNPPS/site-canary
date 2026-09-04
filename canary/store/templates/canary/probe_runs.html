@@ -20,17 +20,25 @@
         <th>Trigger</th>
         <th>Status</th>
         <th>PanDA task</th>
+        <th title="From job creation to its start at the site">Wait</th>
+        <th title="From job start to job end">Ran</th>
+        <th title="Where the job landed, and the node that ran it">Landed</th>
+        <th title="The landing report collected from the job's metadata">Report</th>
         <th>Notes</th>
       </tr>
     </thead>
     <tbody>
-    {% for run in runs %}
+    {% for row in runs %}
       <tr>
-        <td>{{ run.submitted_at|fmt_dt }}</td>
-        <td>{{ run.trigger }}</td>
-        <td class="{{ run.status|state_class }}">{{ run.status }}</td>
-        <td>{% if run.jeditaskid %}<a href="{% url 'monitor_app:panda_task_detail' jeditaskid=run.jeditaskid %}">{{ run.jeditaskid }}</a>{% else %}<span class="text-muted">none</span>{% endif %}</td>
-        <td class="small" style="word-break: break-word;">{% if run.data.task_status %}task {{ run.data.task_status }}{% endif %}{% if run.data.error %} {{ run.data.error }}{% endif %}{% if run.data.stderr %} <span class="text-muted">{{ run.data.stderr|truncatechars:200 }}</span>{% endif %}</td>
+        <td>{{ row.run.submitted_at|fmt_dt }}</td>
+        <td>{{ row.run.trigger }}</td>
+        <td class="{{ row.run.status|state_class }}">{{ row.run.status }}</td>
+        <td>{% if row.run.jeditaskid %}<a href="{% url 'monitor_app:panda_task_detail' jeditaskid=row.run.jeditaskid %}">{{ row.run.jeditaskid }}</a>{% else %}<span class="text-muted">none</span>{% endif %}</td>
+        <td class="text-end">{{ row.wait }}</td>
+        <td class="text-end">{{ row.ran }}</td>
+        <td>{{ row.landed }}{% if row.host %} <span class="text-muted small">{{ row.host }}</span>{% endif %}</td>
+        <td class="small">{% if row.fingerprint %}<code>{{ row.fingerprint }}</code> {% endif %}{{ row.report }}</td>
+        <td class="small" style="word-break: break-word;">{{ row.notes }}{% for e in row.errors %}<div>{{ e|truncatechars:160 }}</div>{% endfor %}{% if row.stderr %} <span class="text-muted">{{ row.stderr|truncatechars:200 }}</span>{% endif %}</td>
       </tr>
     {% endfor %}
     </tbody>

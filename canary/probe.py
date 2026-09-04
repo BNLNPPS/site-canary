@@ -180,47 +180,253 @@ def resolve_probe_container():
         return '', f'PCS lookup failed ({type(e).__name__}); fallback'
 
 
-def refresh_run_statuses():
-    """Advance submitted runs from the PanDA task record: finished and
-    failed terminal states land on the run; anything else stays
-    submitted. Reads PanDA through CANARY_PANDA_DSN, as the assessor's
-    panda source does, so the refresh works under the package's own
-    settings (the CLI on the agent) as well as the host deployment's."""
+JOB_COLUMNS = (
+    'pandaid', 'jeditaskid', 'jobstatus', 'computingsite', 'destinationsite',
+    'modificationhost', 'creationtime', 'starttime', 'endtime', 'attemptnr',
+    'exeerrorcode', 'exeerrordiag', 'piloterrorcode', 'piloterrordiag',
+    'taskbuffererrorcode', 'taskbuffererrordiag',
+)
+TERMINAL_JOB_STATES = ('finished', 'failed', 'cancelled', 'closed')
+FAILED_TASK_STATES = ('failed', 'aborted', 'broken', 'exhausted')
+DONE_TASK_STATES = ('done', 'finished')
+
+
+def _panda_probe_rows(dsn, task_ids):
+    """The PanDA evidence for the open runs: every job of each task
+    (active and archived tables), the task states as fallback, and the
+    job metadata of finished jobs, where the pilot delivers the landing
+    report (jobReport.json lifted whole into the metatable)."""
+    import psycopg
+    cols = ', '.join(f'"{c}"' for c in JOB_COLUMNS)
+    jobs = {}
+    with psycopg.connect(dsn) as conn:
+        with conn.cursor() as cur:
+            for table in ('jobsactive4', 'jobsarchived4'):
+                cur.execute(
+                    f'SELECT {cols} FROM "doma_panda"."{table}" '
+                    'WHERE "jeditaskid" = ANY(%s)', (task_ids,))
+                for row in cur.fetchall():
+                    d = dict(zip(JOB_COLUMNS, row))
+                    jobs.setdefault(d['jeditaskid'], {})[d['pandaid']] = d
+            cur.execute(
+                'SELECT "jeditaskid", "status" FROM "doma_panda"."jedi_tasks" '
+                'WHERE "jeditaskid" = ANY(%s)', (task_ids,))
+            tasks = dict(cur.fetchall())
+            finished = [pid for per in jobs.values()
+                        for pid, j in per.items()
+                        if j['jobstatus'] == 'finished']
+            metadata = {}
+            if finished:
+                cur.execute(
+                    'SELECT "pandaid", "metadata" FROM "doma_panda"."metatable" '
+                    'WHERE "pandaid" = ANY(%s)', (finished,))
+                metadata = dict(cur.fetchall())
+    return jobs, tasks, metadata
+
+
+def _utc(dt):
+    """PanDA timestamps are naive UTC; return ISO 8601 with the zone."""
+    from datetime import timezone as dt_timezone
+    if dt is None:
+        return None
+    return dt.replace(tzinfo=dt_timezone.utc).isoformat()
+
+
+STARTED_JOB_STATES = ('running', 'holding', 'transferring', 'merging',
+                      'finished', 'failed', 'cancelled', 'closed')
+
+
+def _job_facts(job, queue):
+    """What the run records about its job: where it landed, when it
+    waited and ran, and every non-zero error component. A start is
+    taken only from a job that has run: PanDA stamps ``starttime`` when
+    a push-mode job is handed to its worker (``starting``) and again
+    when the pilot reports ``running``, so the first stamp is the
+    dispatch, not the site's start. The node likewise is the job's last
+    modifier and names the pilot's host only once the job has run."""
+    has_run = job['jobstatus'] in STARTED_JOB_STATES and bool(job['starttime'])
+    started = job['starttime'] if has_run else None
+    facts = {
+        'pandaid': job['pandaid'],
+        'job_status': job['jobstatus'],
+        'attempt': job['attemptnr'],
+        'landed_site': (job['destinationsite']
+                        or (queue.site.name if queue.site_id else queue.name)),
+        'host': (job['modificationhost'] or '') if has_run else '',
+        'created_at': _utc(job['creationtime']),
+        'started_at': _utc(started),
+        'ended_at': _utc(job['endtime']),
+        'wait_s': None,
+        'run_s': None,
+    }
+    if started and job['creationtime']:
+        facts['wait_s'] = int((started - job['creationtime']).total_seconds())
+    if job['endtime'] and started:
+        facts['run_s'] = int((job['endtime'] - started).total_seconds())
+    errors = {}
+    for component in ('exe', 'pilot', 'taskbuffer'):
+        code = job.get(f'{component}errorcode') or 0
+        if code:
+            errors[component] = {'code': int(code),
+                                 'diag': (job.get(f'{component}errordiag')
+                                          or '')[:500]}
+    facts['errors'] = errors
+    return facts
+
+
+def _landing_report(raw):
+    """The landing report inside a job's metadata, else None with the
+    reason. The pilot ships jobReport.json as the job metadata; the
+    runner's canary mode puts the report under its ``canary`` key."""
+    import json
+    if not raw:
+        return None, 'no job metadata'
+    try:
+        doc = json.loads(raw) if isinstance(raw, str) else raw
+    except ValueError as e:
+        return None, f'job metadata is not JSON: {e}'
+    if not isinstance(doc, dict):
+        return None, 'job metadata is not an object'
+    report = doc.get('canary')
+    if not isinstance(report, dict):
+        return None, 'job metadata carries no canary report'
+    return report, ''
+
+
+def collect_run_outcomes():
+    """Bring every open probe run up to date from PanDA and collect the
+    landing report of every finished one into the store.
+
+    Open runs are the submitted ones and the finished ones whose report
+    has not been collected. For each, the run's job supplies the landed
+    site and host, the creation-to-start wait, the run time, and the
+    error components; a job that has started but not ended records its
+    wait and stays submitted. A finished job's metadata carries the
+    landing report, which is ingested (source probe, site as landed)
+    and the run becomes ``collected``; a finished job without a report
+    is an error and the run stays ``finished`` with the reason. A failed
+    job fails the run with its errors. A task with no job record falls
+    back to the task state. Reads PanDA through CANARY_PANDA_DSN, as
+    the assessor's panda source does. Every failure is recorded on its
+    run and logged; nothing raises past the loop. Returns the counts.
+    """
     from canary.config import PANDA_DSN
+    from canary.store.ingest import IngestError, ingest_report
     from canary.store.models import ProbeRun
 
-    open_runs = list(ProbeRun.objects.filter(
-        status=ProbeRun.Status.SUBMITTED, jeditaskid__isnull=False))
+    counts = {'open': 0, 'started': 0, 'collected': 0, 'finished': 0,
+              'failed': 0, 'errors': 0}
+    candidates = ProbeRun.objects.filter(
+        jeditaskid__isnull=False,
+        status__in=(ProbeRun.Status.SUBMITTED, ProbeRun.Status.FINISHED),
+    ).select_related('queue', 'queue__site')
+    open_runs = [r for r in candidates
+                 if r.status == ProbeRun.Status.SUBMITTED
+                 or not ((r.data or {}).get('report_id')
+                         or (r.data or {}).get('report') == 'missing')]
+    counts['open'] = len(open_runs)
     if not open_runs:
-        return 0
+        return counts
     if not PANDA_DSN:
-        logger.error('probe status refresh: CANARY_PANDA_DSN is not set; '
-                     '%d open runs left as submitted', len(open_runs))
-        return 0
-    ids = [r.jeditaskid for r in open_runs]
+        logger.error('probe collection: CANARY_PANDA_DSN is not set; '
+                     '%d open runs left as they are', len(open_runs))
+        counts['errors'] = len(open_runs)
+        return counts
+    ids = sorted({r.jeditaskid for r in open_runs})
     try:
-        import psycopg
-        with psycopg.connect(PANDA_DSN) as conn:
-            with conn.cursor() as cursor:
-                cursor.execute(
-                    'SELECT "jeditaskid", "status" FROM '
-                    '"doma_panda"."jedi_tasks" '
-                    'WHERE "jeditaskid" = ANY(%s)', (ids,))
-                states = dict(cursor.fetchall())
-    except Exception as e:
-        logger.error('probe status refresh: PanDA task-state query '
-                     'failed for %d open runs: %s', len(open_runs), e)
-        return 0
-    advanced = 0
+        jobs, tasks, metadata = _panda_probe_rows(PANDA_DSN, ids)
+    except Exception as e:  # noqa: BLE001 - surfaced, never raised past here
+        logger.error('probe collection: PanDA query failed for %d open '
+                     'runs: %s', len(open_runs), e)
+        counts['errors'] = len(open_runs)
+        return counts
+
     for run_row in open_runs:
-        state = str(states.get(run_row.jeditaskid) or '')
-        if state in ('done', 'finished'):
-            run_row.status = ProbeRun.Status.FINISHED
-        elif state in ('failed', 'aborted', 'broken', 'exhausted'):
+        try:
+            _collect_one(run_row, jobs, tasks, metadata, ingest_report,
+                         IngestError, ProbeRun, counts)
+        except Exception as e:  # noqa: BLE001 - one bad run never stops the rest
+            logger.error('probe collection: run %s (task %s) failed: %s',
+                         run_row.id, run_row.jeditaskid, e, exc_info=True)
+            run_row.data = dict(run_row.data or {}, collect_error=str(e)[:500])
+            run_row.save(update_fields=['data', 'modified_at'])
+            counts['errors'] += 1
+    return counts
+
+
+def _collect_one(run_row, jobs, tasks, metadata, ingest_report, IngestError,
+                 ProbeRun, counts):
+    data = dict(run_row.data or {})
+    task_state = str(tasks.get(run_row.jeditaskid) or '')
+    per_task = jobs.get(run_row.jeditaskid) or {}
+    job = max(per_task.values(), key=lambda j: j['pandaid']) if per_task else None
+
+    if job is None:
+        # No job record yet, or none any more: the task state decides.
+        if task_state in FAILED_TASK_STATES:
             run_row.status = ProbeRun.Status.FAILED
+            counts['failed'] += 1
+        elif task_state in DONE_TASK_STATES:
+            run_row.status = ProbeRun.Status.FINISHED
+            data['report'] = 'missing'
+            logger.error('probe collection: task %s is %s but has no job '
+                         'record; no report to collect',
+                         run_row.jeditaskid, task_state)
+            counts['finished'] += 1
         else:
-            continue
-        run_row.data = dict(run_row.data or {}, task_status=state)
+            return
+        data['task_status'] = task_state
+        data['collect_note'] = 'no job record'
+        run_row.data = data
         run_row.save(update_fields=['status', 'data', 'modified_at'])
-        advanced += 1
-    return advanced
+        return
+
+    already_started = bool(data.get('started_at'))
+    data.update(_job_facts(job, run_row.queue))
+    if task_state:
+        data['task_status'] = task_state
+    if job['jobstatus'] not in TERMINAL_JOB_STATES:
+        if data.get('started_at') and not already_started:
+            counts['started'] += 1
+        run_row.data = data
+        run_row.save(update_fields=['data', 'modified_at'])
+        return
+
+    if job['jobstatus'] == 'finished':
+        report, reason = _landing_report(metadata.get(job['pandaid']))
+        if report is None:
+            run_row.status = ProbeRun.Status.FINISHED
+            data['report'] = 'missing'
+            data['collect_note'] = reason
+            logger.error('probe collection: task %s job %s finished but %s',
+                         run_row.jeditaskid, job['pandaid'], reason)
+            counts['finished'] += 1
+        else:
+            try:
+                summary = ingest_report(report, site_name=data['landed_site'],
+                                        queue_name=run_row.queue.name,
+                                        source='probe')
+            except IngestError as e:
+                run_row.status = ProbeRun.Status.FINISHED
+                data['report'] = 'rejected'
+                data['collect_note'] = str(e)[:500]
+                logger.error('probe collection: task %s job %s report '
+                             'rejected: %s', run_row.jeditaskid,
+                             job['pandaid'], e)
+                counts['errors'] += 1
+            else:
+                run_row.status = ProbeRun.Status.COLLECTED
+                data['report'] = 'collected'
+                data['report_id'] = summary['report_id']
+                data['fingerprint'] = summary['environment']
+                data['kit_exit_code'] = report.get('kit_exit_code')
+                fp = report.get('fingerprint') or {}
+                data['cvmfs'] = {repo: bool((v or {}).get('reachable'))
+                                 for repo, v in (fp.get('cvmfs') or {}).items()}
+                data['gpu'] = bool((fp.get('gpu') or {}).get('present'))
+                counts['collected'] += 1
+    else:
+        run_row.status = ProbeRun.Status.FAILED
+        counts['failed'] += 1
+    run_row.data = data
+    run_row.save(update_fields=['status', 'data', 'modified_at'])

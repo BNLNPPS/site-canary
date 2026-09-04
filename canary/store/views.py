@@ -98,6 +98,9 @@ def probes_page(request):
             'queue': queue,
             'interval_hours': config['interval_hours'],
             'last': last,
+            'last_wait': (format_duration((last.data or {}).get('wait_s'))
+                          if last and (last.data or {}).get('wait_s') is not None
+                          else ''),
             'next_due': probe_mod.next_due(queue, config, last),
             'runs_count': queue.probe_runs.count(),
         })
@@ -126,13 +129,53 @@ def probe_runs_page(request, queue_name):
 
     queue = get_object_or_404(Queue, name=queue_name)
     config = probe_mod.probe_config(queue)
-    runs = list(queue.probe_runs.order_by('-submitted_at')[:200])
+    runs = [_run_row(run)
+            for run in queue.probe_runs.order_by('-submitted_at')[:200]]
     return render(request, 'canary/probe_runs.html', {
         'queue': queue,
         'config': config,
         'runs': runs,
         'operable': _probe_writes_operable(request),
     })
+
+
+def _run_row(run):
+    """One probe run for the history table: the run, its timings
+    formatted, its landing, its report summary, and its notes."""
+    data = run.data or {}
+    errors = [f"{component} {err.get('code')}: {err.get('diag') or ''}"
+              for component, err in (data.get('errors') or {}).items()]
+    notes = []
+    if data.get('task_status'):
+        notes.append(f"task {data['task_status']}")
+    for key in ('collect_note', 'collect_error', 'error'):
+        if data.get(key):
+            notes.append(str(data[key]))
+    report = ''
+    if data.get('report') == 'collected':
+        cvmfs = data.get('cvmfs') or {}
+        parts = [f"kit {data.get('kit_exit_code')}"]
+        for repo, reachable in sorted(cvmfs.items()):
+            parts.append(f"{repo.split('.')[0]} cvmfs "
+                         f"{'yes' if reachable else 'NO'}")
+        parts.append(f"gpu {'yes' if data.get('gpu') else 'no'}")
+        report = ' · '.join(parts)
+    elif data.get('report'):
+        report = data['report']
+    return {
+        'run': run,
+        'wait': (format_duration(data['wait_s'])
+                 if data.get('wait_s') is not None else ''),
+        'ran': (format_duration(data['run_s'])
+                if data.get('run_s') is not None else ''),
+        'landed': data.get('landed_site') or '',
+        'host': data.get('host') or '',
+        'fingerprint': (data.get('fingerprint') or '')[:8],
+        'report': report,
+        'errors': errors,
+        'notes': ' · '.join(notes),
+        'stderr': data.get('stderr') or '',
+    }
 
 
 def probe_config_update(request):
