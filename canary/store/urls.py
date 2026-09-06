@@ -10,6 +10,8 @@ urlpatterns = [
     path('probes/config/', views.probe_config_update,
          name='probe_config_update'),
     path('probes/run-now/', views.probe_run_now, name='probe_run_now'),
+    path('probes/payload-canary/', views.payload_canary_run_now,
+         name='payload_canary_run_now'),
     path('probes/<str:queue_name>/runs/', views.probe_runs_page,
          name='probe_runs'),
 ]

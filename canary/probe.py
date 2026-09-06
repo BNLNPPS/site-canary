@@ -31,16 +31,23 @@ def configured_queues():
             if probe_config(q)['enabled']]
 
 
+def _landing_runs(queue):
+    """The queue's landing-probe runs. Payload canaries share the table
+    (``data.kind`` = payload) but neither anchor the probe schedule nor
+    speak for site health."""
+    return queue.probe_runs.exclude(data__kind='payload')
+
+
 def last_run(queue):
-    """The queue's most recent probe run, else None."""
-    return queue.probe_runs.order_by('-submitted_at').first()
+    """The queue's most recent landing-probe run, else None."""
+    return _landing_runs(queue).order_by('-submitted_at').first()
 
 
 def last_submitted_run(queue):
-    """The most recent run that actually reached PanDA — the schedule
-    anchor. A failed submission never consumes the interval; it
-    retries on the next tick."""
-    return (queue.probe_runs.filter(jeditaskid__isnull=False)
+    """The most recent landing-probe run that actually reached PanDA —
+    the schedule anchor. A failed submission never consumes the
+    interval; it retries on the next tick."""
+    return (_landing_runs(queue).filter(jeditaskid__isnull=False)
             .order_by('-submitted_at').first())
 
 
@@ -138,6 +145,176 @@ def dispatch(now, queue_names=None, force=False, submit_cmd=None):
             results.append({'queue': queue.name, 'outcome': 'failed',
                             'rc': p.returncode})
     return results
+
+
+# -- payload canaries ---------------------------------------------------------
+# A payload canary runs the production payload on one manifest row of a
+# PCS task, as a canary task on a named queue, with its outputs in one
+# flat dataset under epic:/TEST/ that expires (IMPLEMENTATION.md, Payload
+# canaries). The run is a ProbeRun of kind ``payload``; its verdict is a
+# checklist read from the payload report the dispatcher ships as job
+# metadata, never from the job's exit alone.
+
+PAYLOAD_STAGES = ('input', 'simulation', 'reconstruction', 'validation',
+                  'registration')
+CANARY_DATASET_ROOT = 'TEST/canary'
+
+
+def dispatch_payload_canary(now, task_name, queue_name, submit_script=None):
+    """Submit one payload canary through the production submit doer in
+    its canary mode and record it as a ProbeRun of kind payload. Every
+    failure is recorded on the run and returned, never raised."""
+    import os
+    import re
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    from canary.store.models import ProbeRun, Queue
+
+    queue = Queue.objects.filter(name=queue_name).first()
+    if queue is None:
+        return {'queue': queue_name, 'outcome': 'unknown queue'}
+    release = os.environ.get('SWF_MONITOR_RELEASE', '/opt/swf-monitor/current')
+    submit_script = submit_script or os.environ.get(
+        'CANARY_PAYLOAD_SUBMIT',
+        str(Path(release) / 'scripts' / 'submit-evgen-task.py'))
+    stamp = f"{now:%Y%m%dT%H%M%SZ}.{queue.name}"
+    run_row = ProbeRun.objects.create(
+        queue=queue, submitted_at=now, trigger=ProbeRun.Trigger.MANUAL,
+        data={'kind': 'payload', 'task': task_name, 'stamp': stamp,
+              'dataset': f'epic:/{CANARY_DATASET_ROOT}/{stamp}'})
+    cmd = [sys.executable, submit_script, '--task-name', task_name,
+           '--canary-stamp', stamp, '--canary-queue', queue.name]
+    proxy = os.environ.get('EVGEN_X509_PROXY')
+    if proxy:
+        cmd += ['--proxy', proxy]
+    result = {'queue': queue.name, 'task': task_name, 'stamp': stamp,
+              'run_id': str(run_row.id)}
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+    except subprocess.TimeoutExpired:
+        run_row.status = ProbeRun.Status.FAILED_SUBMIT
+        run_row.data = dict(run_row.data, error='submission timed out after 600s')
+        run_row.save(update_fields=['status', 'data', 'modified_at'])
+        return dict(result, outcome='timeout')
+    out = (p.stdout or '') + (p.stderr or '')
+    match = re.search(r'jediTaskID[=:\s]+(\d+)', out)
+    if p.returncode == 0 and match:
+        run_row.jeditaskid = int(match.group(1))
+        run_row.save(update_fields=['jeditaskid', 'modified_at'])
+        return dict(result, outcome='submitted', jeditaskid=run_row.jeditaskid)
+    run_row.status = ProbeRun.Status.FAILED_SUBMIT
+    run_row.data = dict(run_row.data, rc=p.returncode,
+                        stdout=(p.stdout or '')[-2000:],
+                        stderr=(p.stderr or '')[-2000:])
+    run_row.save(update_fields=['status', 'data', 'modified_at'])
+    return dict(result, outcome='failed', rc=p.returncode)
+
+
+def _did_available(dids):
+    """Whether every DID has an available replica in JLab Rucio, read as
+    the eicprod account through the proxy the agent holds. None when the
+    catalog could not be read: unverified, never a failed check."""
+    import os
+    if not dids:
+        return None
+    proxy = os.environ.get('EVGEN_X509_PROXY')
+    if not proxy or not os.path.exists(proxy):
+        return None
+    try:
+        from rucio.client import Client
+        host = os.environ.get('JLAB_RUCIO_URL', 'https://rucio-server.jlab.org:443')
+        client = Client(rucio_host=host, auth_host=host, account='eicprod',
+                        auth_type='x509_proxy', creds={'client_proxy': proxy})
+        wanted = [{'scope': 'epic', 'name': d} for d in dids]
+        available = set()
+        for rep in client.list_replicas(wanted, all_states=True):
+            if 'AVAILABLE' in (rep.get('states') or {}).values():
+                available.add(rep['name'])
+        return all(d in available for d in dids)
+    except Exception as e:  # noqa: BLE001 - unverified, reported
+        logger.error('payload canary: replica check failed: %s', e)
+        return None
+
+
+def payload_verdict(report):
+    """The checklist verdict of a payload canary from its report:
+    (checks, verdict). Each check is {check, ok, detail}; ok is None when
+    the check could not be made. The verdict state is healthy when no
+    check failed, degraded otherwise, with the first failure as reason."""
+    stages = report.get('stages') or []
+    oks = {}
+    fails = {}
+    for s in stages:
+        name, status, detail = s.get('stage'), s.get('status'), s.get('detail') or ''
+        if status == 'ok':
+            oks.setdefault(name, []).append(detail)
+        elif status == 'fail':
+            fails.setdefault(name, []).append(detail)
+    checks = []
+    for name in PAYLOAD_STAGES:
+        done = oks.get(name, [])
+        if name == 'validation':
+            ok = any(d.startswith('RECO') for d in done)
+        elif name == 'registration':
+            ok = any(d.endswith('.eicrecon.edm4eic.root') for d in done)
+        else:
+            ok = bool(done)
+        ok = ok and name not in fails
+        checks.append({'check': name, 'ok': ok,
+                       'detail': '; '.join(fails.get(name, []))[:300]})
+    rc = report.get('payload_exit_code')
+    checks.append({'check': 'payload_exit', 'ok': rc == 0, 'detail': f'exit {rc}'})
+    requested = report.get('requested_events')
+    produced = report.get('events_processed')
+    checks.append({'check': 'events',
+                   'ok': (requested is not None and produced == requested),
+                   'detail': f'{produced} produced of {requested} requested'})
+    dids = report.get('dids') or []
+    available = _did_available(dids)
+    checks.append({'check': 'output_available',
+                   'ok': available if available is not None else None,
+                   'detail': (', '.join(dids)[:300] if dids else 'no DID registered')
+                             + ('' if available is not None else ' (not verified)')})
+    failed = [c for c in checks if c['ok'] is False]
+    if failed:
+        verdict = {'state': 'degraded',
+                   'reason': f"{failed[0]['check']}: {failed[0]['detail'] or 'failed'}"}
+    else:
+        verdict = {'state': 'healthy', 'reason': 'all checks passed'}
+    return checks, verdict
+
+
+def _collect_payload(run_row, job, raw_metadata, data, ProbeRun, counts):
+    """Collect a finished payload canary: the payload report from the
+    job's metadata becomes the run's checks and verdict."""
+    report, reason = _landing_report(raw_metadata)
+    if report is None or report.get('kind') != 'payload':
+        run_row.status = ProbeRun.Status.FINISHED
+        data['report'] = 'missing'
+        data['collect_note'] = reason or 'job metadata carries no payload report'
+        logger.error('payload canary: task %s job %s finished but %s',
+                     run_row.jeditaskid, job['pandaid'], data['collect_note'])
+        counts['finished'] += 1
+    else:
+        checks, verdict = payload_verdict(report)
+        data.update({
+            'report': 'collected',
+            'payload_version': report.get('payload_version') or '',
+            'payload_exit_code': report.get('payload_exit_code'),
+            'events_processed': report.get('events_processed'),
+            'requested_events': report.get('requested_events'),
+            'stages': [(s.get('stage'), s.get('status')) for s in report.get('stages') or []],
+            'dids': report.get('dids') or [],
+            'metadata': report.get('metadata'),
+            'checks': checks,
+            'verdict': verdict,
+        })
+        run_row.status = ProbeRun.Status.COLLECTED
+        counts['collected'] += 1
+    run_row.data = data
+    run_row.save(update_fields=['status', 'data', 'modified_at'])
 
 
 def resolve_probe_container():
@@ -393,6 +570,10 @@ def _collect_one(run_row, jobs, tasks, metadata, ingest_report, IngestError,
         return
 
     if job['jobstatus'] == 'finished':
+        if data.get('kind') == 'payload':
+            _collect_payload(run_row, job, metadata.get(job['pandaid']),
+                             data, ProbeRun, counts)
+            return
         report, reason = _landing_report(metadata.get(job['pandaid']))
         if report is None:
             run_row.status = ProbeRun.Status.FINISHED

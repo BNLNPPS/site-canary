@@ -117,6 +117,29 @@ def cmd_probe_dispatch(args):
     return 0 if submissions_ok and not collected['errors'] else 1
 
 
+def cmd_payload_canary(args):
+    """One payload canary: the named PCS task's first manifest row through
+    the production payload on the named queue, as a canary task with an
+    expiring output dataset; the run is a ProbeRun of kind payload whose
+    verdict the next collection cycle reads from the payload report."""
+    from datetime import datetime, timezone as dt_timezone
+
+    from .store.standalone import setup_django
+
+    setup_django()
+    from . import probe
+    now = datetime.now(dt_timezone.utc)
+    result = probe.dispatch_payload_canary(now, args.task, args.queue)
+    if args.json:
+        print(json.dumps(result, indent=2))
+    else:
+        extra = (f" jediTaskID={result['jeditaskid']}"
+                 if result.get('jeditaskid') else '')
+        print(f"{result.get('queue', args.queue):<32} {result['outcome']}"
+              f"{extra} {result.get('stamp', '')}")
+    return 0 if result.get('outcome') == 'submitted' else 1
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog='canary',
@@ -178,6 +201,21 @@ def main(argv=None):
     p_probe.add_argument('--json', action='store_true',
                          help='JSON output')
     p_probe.set_defaults(func=cmd_probe_dispatch)
+
+    p_payload = subparsers.add_parser(
+        'payload-canary',
+        help='run the production payload on one manifest row of a PCS '
+             'task as a canary task on a queue, outputs to an expiring '
+             'dataset under epic:/TEST/; the verdict is collected by the '
+             'next probe-dispatch cycle')
+    p_payload.add_argument('--task', required=True,
+                           help='the PCS task (composed name) whose first '
+                                'manifest row and configuration the canary runs')
+    p_payload.add_argument('--queue', required=True,
+                           help='the PanDA queue to run it on')
+    p_payload.add_argument('--json', action='store_true',
+                           help='JSON output')
+    p_payload.set_defaults(func=cmd_payload_canary)
 
     args = parser.parse_args(argv)
     if args.command is None:

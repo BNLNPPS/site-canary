@@ -177,5 +177,67 @@
       </form>
     </div>
   </div>
+
+  <h4 class="mt-4">Payload canaries</h4>
+  <p class="text-muted">A payload canary runs the production payload on one
+    manifest row of a PCS task, as a canary task on the chosen queue: a
+    test with a verdict, not a production run. Its two output files go to
+    one flat dataset under epic:/TEST/ that expires after seven days;
+    nothing lands under RECO, FULL or EVGEN. The verdict is a checklist
+    read from the payload's own report: input, simulation,
+    reconstruction, validation, registration, the payload exit, the
+    events produced against those requested, and the output available in
+    the catalog. It is collected on the next probe-dispatch cycle.
+  </p>
+  <div class="card mb-2" style="max-width: 64em;">
+    <div class="card-body py-2">
+      <form method="post" action="{% url 'canary:payload_canary_run_now' %}" class="d-flex align-items-center flex-wrap gap-2 mb-0">
+        {% csrf_token %}
+        <strong>Run a payload canary</strong>
+        <input type="text" name="task" placeholder="the PCS task's composed name" class="form-control form-control-sm" style="width: 30em;" {% if not operable %}disabled{% endif %}>
+        <span class="text-muted">on</span>
+        <select name="queue" class="form-select form-select-sm" style="width: auto;" {% if not operable %}disabled{% endif %}>
+          {% for q in all_queues %}<option value="{{ q.name }}">{{ q.name }}</option>{% endfor %}
+        </select>
+        <button type="submit" class="btn btn-sm btn-success" {% if not operable %}disabled{% endif %}>Run</button>
+      </form>
+    </div>
+  </div>
+  {% if payload_runs %}
+  <table class="table table-striped table-bordered table-sm align-middle w-auto swf-sortable">
+    <thead>
+      <tr>
+        <th>Submitted</th>
+        <th title="The PCS task whose first manifest row and configuration the canary ran">Task</th>
+        <th>Queue</th>
+        <th title="The epicprod payload version the sandbox shipped">Payload</th>
+        <th>Status</th>
+        <th title="The checklist verdict read from the payload report">Verdict</th>
+        <th title="Each check of the verdict">Checks</th>
+        <th title="Events produced against those requested">Events</th>
+        <th title="The expiring canary dataset the outputs went to">Dataset</th>
+        <th>PanDA task</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for r in payload_runs %}
+      <tr>
+        <td>{{ r.run.submitted_at|fmt_dt }}{% if r.phase %} <span class="text-muted small">{{ r.phase }}</span>{% endif %}</td>
+        <td class="small" style="word-break: break-all;">{{ r.task }}</td>
+        <td>{{ r.run.queue.name }}</td>
+        <td class="small">{{ r.payload_version }}</td>
+        <td class="{{ r.run.status|state_class }}">{{ r.run.status }}</td>
+        <td class="{{ r.verdict_state|state_class }}" title="{{ r.verdict_reason }}">{{ r.verdict_state }}</td>
+        <td class="small">{{ r.checks_text }}</td>
+        <td class="small text-end">{{ r.events }}</td>
+        <td class="small" style="word-break: break-all;">{{ r.dataset }}</td>
+        <td>{% if r.run.jeditaskid %}<a href="{% url 'monitor_app:panda_task_detail' jeditaskid=r.run.jeditaskid %}">{{ r.run.jeditaskid }}</a>{% else %}<span class="text-muted">none</span>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>No payload canary has run yet.</p>
+  {% endif %}
 </div>
 {% endblock %}

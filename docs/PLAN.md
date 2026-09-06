@@ -157,6 +157,13 @@ Verdicts act on PanDA queue status with action-stream provenance
 records; the dedicated global-shares probe leaf; the first probe jobs
 built from real ePIC payloads, carrying the landing kit.
 
+**Payload canary (done, 2026-09-06).** The first probe built from the
+real ePIC payload: the epicprod payload on one manifest row of a PCS
+task as a canary task, outputs in an expiring dataset under
+`epic:/TEST/`, a checklist verdict from the payload report
+(IMPLEMENTATION.md § Payload canaries). It is the submission ladder's
+payload validation rung and the acceptance run of every payload change.
+
 **Report collection (done).** Probe landing reports are collected from
 PanDA job metadata at each dispatch cycle and ingested into the map
 under the landed site, with the run's creation-to-start wait, run

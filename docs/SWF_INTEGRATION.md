@@ -118,6 +118,13 @@ standing installation on the swf-testbed host (`pandaserver02`).
   container is the current campaign's production image resolved from
   PCS through `SWF_MONITOR_URL` at dispatch (`CANARY_CONTAINER_IMAGE`
   overrides); the spec's `containerImage` is the fallback.
+- Payload canaries (IMPLEMENTATION.md § Payload canaries): the page's
+  Run control enqueues a `payload_canary` message carrying the PCS task
+  and the queue; the agent's handler runs `canary payload-canary`, which
+  submits through the release's production submit doer
+  (`scripts/submit-evgen-task.py` in canary mode, `CANARY_PAYLOAD_SUBMIT`
+  overrides) with the agent's `EVGEN_X509_PROXY`. Collection of the
+  verdict rides the probe-dispatch cycle.
 - Configuration: `CANARY_PANDA_DSN` and `CANARY_DB_*` (the swfdb
   store) in `/opt/swf-monitor/config/env/production.env` for the
   agent, and in `~/.env` for development use.

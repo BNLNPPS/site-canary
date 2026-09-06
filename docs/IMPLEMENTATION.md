@@ -269,3 +269,49 @@ queue, reloads so the row shows the run, submitted with its task or
 failed with the reason in the run history; a failed dispatch says so
 in place, and a cycle that reports nothing within fifteen minutes is
 stated as such.
+
+### Payload canaries
+
+A payload canary is a test of the production payload, with a verdict:
+the epicprod payload (swf-epicprod docs/EPICPROD_PAYLOAD.md) on one
+manifest row of a PCS task, as a canary task on a chosen queue, never
+a production run and never a production task identity. It is the
+submission ladder's payload validation
+(CONTINUOUS_PRODUCTION.md § The submission ladder, rung 2) and the
+acceptance run of a payload change.
+
+`canary payload-canary --task NAME --queue Q` submits one through the
+production submit doer in its canary mode (`submit-evgen-task.py
+--canary-stamp --canary-queue`): the task's first manifest row alone,
+under the canary account, processing type canary, one job, one
+attempt, output dataset `group.EIC.canary.<queue>.<stamp>`, and the
+runner's `payload-canary` mode as the exec. The run is a `ProbeRun`
+of kind `payload` (`data.kind`), keyed by the PCS task, the queue and
+the stamp; payload runs share the table with landing probes but neither
+anchor the probe schedule nor speak for site health. The canary page's
+Payload canaries section lists them and carries the Run control, which
+enqueues a `payload_canary` message for the canary agent; the agent
+runs the CLI and publishes the same completion event as a probe
+dispatch, with `kind` payload.
+
+The job's outputs go to one flat dataset under `epic:/TEST/`,
+`/TEST/canary/<stamp>`, holding the FULL and RECO files under their
+own names: no production layout is reproduced, no log goes to JLab
+(the PanDA log dataset carries the logs), and no production record
+reads `/TEST`. The dataset's rule and every DID registered carry a
+seven-day lifetime, so a canary run's footprint removes itself. The
+runner's payload-canary mode sets this through the payload's
+`CANARY_OUTPUT_DATASET` and `CANARY_LIFETIME_S`, and exits 0 whatever
+the payload did, so the pilot ships the report as job metadata.
+
+The verdict is a checklist read from the payload report at the next
+collection cycle, never from the job's exit alone: input, simulation,
+reconstruction, validation of the RECO file, registration of the RECO
+file, from the payload's stage log; the payload exit code; the events
+produced against those requested by the manifest row; and the
+registered output available in the catalog, read as `eicprod` through
+the agent's proxy (unverified, not failed, when the catalog cannot be
+read). The verdict is healthy when no check failed, degraded with the
+first failure as its reason otherwise, and failing when the job failed.
+The checks, the DIDs, the payload version and the registration metadata
+stay on the run.

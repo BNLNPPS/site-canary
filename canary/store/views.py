@@ -96,6 +96,7 @@ def probes_page(request):
         last = probe_mod.last_run(queue)
         completed = (queue.probe_runs
                      .exclude(status=ProbeRun.Status.SUBMITTED)
+                     .exclude(data__kind='payload')
                      .order_by('-submitted_at').first())
         health, health_reason = _probe_health(completed)
         phase, phase_state = _run_phase(last)
@@ -118,9 +119,15 @@ def probes_page(request):
                   if q.id not in enabled_ids
                   and 'test' not in q.name.lower()]
     context = _health_context()
+    payload_runs = [
+        _payload_row(run) for run in
+        ProbeRun.objects.filter(data__kind='payload')
+        .select_related('queue').order_by('-submitted_at')[:30]]
     context.update({
         'rows': rows,
         'candidates': candidates,
+        'payload_runs': payload_runs,
+        'all_queues': list(Queue.objects.order_by('name')),
         'operable': _probe_writes_operable(request),
         # A just-queued Run now: the page waits on the agent's completion
         # event for this queue and reloads to show the run's outcome.
@@ -205,7 +212,11 @@ def _run_row(run):
         if data.get(key):
             notes.append(str(data[key]))
     report = ''
-    if data.get('report') == 'collected':
+    if data.get('kind') == 'payload':
+        verdict = data.get('verdict') or {}
+        report = (f"payload canary {verdict.get('state', run.status)}: "
+                  f"{verdict.get('reason', data.get('report') or 'awaiting collection')}")
+    elif data.get('report') == 'collected':
         cvmfs = data.get('cvmfs') or {}
         parts = [f"kit {data.get('kit_exit_code')}"]
         for repo, reachable in sorted(cvmfs.items()):
@@ -229,6 +240,91 @@ def _run_row(run):
         'notes': ' · '.join(notes),
         'stderr': data.get('stderr') or '',
     }
+
+
+def _payload_row(run):
+    """One payload canary for the page: the run, its task and stamp, the
+    verdict with its reason, and the checklist as a line."""
+    data = run.data or {}
+    verdict = data.get('verdict') or {}
+    if verdict:
+        state, reason = verdict.get('state', ''), verdict.get('reason', '')
+    elif run.status == ProbeRun.Status.FAILED:
+        errors = data.get('errors') or {}
+        first = next(iter(errors.values()), None) or {}
+        state, reason = 'failing', str(first.get('diag') or 'job failed')[:200]
+    elif run.status == ProbeRun.Status.FAILED_SUBMIT:
+        state, reason = 'unknown', 'submission failed'
+    else:
+        state, reason = 'unknown', 'awaiting the report'
+    checks = data.get('checks') or []
+    marks = []
+    for c in checks:
+        mark = 'ok' if c.get('ok') else ('?' if c.get('ok') is None else 'FAIL')
+        marks.append(f"{c.get('check')} {mark}")
+    events = ''
+    if data.get('events_processed') is not None:
+        events = f"{data['events_processed']} of {data.get('requested_events')}"
+    return {
+        'run': run,
+        'task': data.get('task') or '',
+        'stamp': data.get('stamp') or '',
+        'dataset': data.get('dataset') or '',
+        'payload_version': data.get('payload_version') or '',
+        'verdict_state': state,
+        'verdict_reason': reason,
+        'checks_text': ' · '.join(marks),
+        'events': events,
+        'phase': _run_phase(run)[0],
+    }
+
+
+def payload_canary_run_now(request):
+    """Queue one payload canary through the canary agent: the named PCS
+    task's first manifest row through the production payload on the
+    named queue. A write: login on the direct face."""
+    import json as _json
+
+    from django.contrib import messages
+    from django.shortcuts import redirect
+    from django.urls import reverse
+
+    url = reverse('canary:probes_page')
+    if request.method != 'POST':
+        return redirect(url)
+    if not _probe_writes_operable(request):
+        messages.error(request, 'A payload canary is a pandaserver02 action '
+                                '(login required).')
+        return redirect(url)
+    task = (request.POST.get('task') or '').strip()
+    queue_name = (request.POST.get('queue') or '').strip()
+    if not task or not queue_name:
+        messages.error(request, 'A payload canary needs a PCS task and a queue.')
+        return redirect(url)
+    try:
+        from monitor_app.activemq_connection import ActiveMQConnectionManager
+        sent = ActiveMQConnectionManager().send_message(
+            '/queue/canary.ops', _json.dumps({
+                'msg_type': 'payload_canary',
+                'namespace': 'canary',
+                'task': task,
+                'queue': queue_name,
+                'created_by': getattr(request.user, 'username', '') or 'web',
+            }))
+    except Exception as e:
+        logger.error('payload canary enqueue failed for %s on %s: %s',
+                     task, queue_name, e)
+        sent = False
+    if sent:
+        from urllib.parse import urlencode
+        messages.success(request,
+                         f'Payload canary queued: {task} on {queue_name}. '
+                         f'The run shows here when the agent reports; its '
+                         f'verdict follows on the next collection cycle.')
+        return redirect(f'{url}?{urlencode({"queued": queue_name})}')
+    messages.error(request, 'The payload canary could not be queued; '
+                            'the message bus refused it.')
+    return redirect(url)
 
 
 def probe_config_update(request):
