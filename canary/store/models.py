@@ -276,3 +276,57 @@ class ProbeRun(models.Model):
 
     def __str__(self):
         return f'{self.queue.name} probe {self.jeditaskid or "unsubmitted"}'
+
+
+class NodeMeasurement(models.Model):
+    """Measured capability of one node environment under one workload:
+    running distributions of the payload's per-stage measures over the
+    jobs that ran there (docs/MEASUREMENTS.md).
+
+    The environment is the PanDA queue and the processor description every
+    job record carries, and the node environment when a fingerprint was
+    carried; the workload is the container image, detector version,
+    physics configuration, payload version and stage. One row per key,
+    however many jobs it summarizes: ``metrics`` holds per measure the
+    count, running mean and variance, minimum and maximum.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    queue = models.ForeignKey(Queue, on_delete=models.PROTECT,
+                              related_name='measurements')
+    processor = models.CharField(max_length=200, default='unknown')
+    node_environment = models.ForeignKey(NodeEnvironment,
+                                         on_delete=models.SET_NULL,
+                                         null=True, blank=True,
+                                         related_name='measurements')
+    container_image = models.CharField(max_length=300, blank=True, default='')
+    detector_version = models.CharField(max_length=50, blank=True, default='')
+    physics_config = models.CharField(max_length=32, blank=True, default='')
+    payload_version = models.CharField(max_length=32, blank=True, default='')
+    stage = models.CharField(max_length=64)
+    metrics = models.JSONField(default=dict)
+    jobs = models.PositiveIntegerField(default=0)
+    first_job_at = models.DateTimeField(null=True, blank=True)
+    last_job_at = models.DateTimeField(null=True, blank=True)
+    data = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    modified_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'canary_node_measurement'
+        ordering = ['queue', 'processor', 'stage']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['queue', 'processor', 'container_image',
+                        'detector_version', 'physics_config',
+                        'payload_version', 'stage'],
+                name='canary_measure_key_uniq',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['queue', 'processor'],
+                         name='canary_measure_queue_proc_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.queue.name}:{self.processor}:{self.stage} ({self.jobs} jobs)'

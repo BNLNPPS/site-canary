@@ -315,3 +315,28 @@ read). The verdict is healthy when no check failed, degraded with the
 first failure as its reason otherwise, and failing when the job failed.
 The checks, the DIDs, the payload version and the registration metadata
 stay on the run.
+
+## Measurement store
+
+The node measurement store of [MEASUREMENTS.md](MEASUREMENTS.md), in
+place since 2026-09-07. `NodeMeasurement` (`canary_node_measurement`)
+holds one row per environment and workload: the PanDA queue and
+processor description, the node environment when a fingerprint was
+carried, the container image, detector version, physics configuration,
+payload version and stage; `metrics` carries per measure the count,
+running mean and variance, minimum and maximum, folded by
+`canary.store.measure.record_job` (Welford), which knows nothing of how
+a measure was obtained. `queue_summary` gives pages the job-weighted mean
+of one measure per processor and stage over every workload a queue ran.
+
+The ePIC ingest is the swf-monitor doer `node-measure-ingest.py`
+(ops-agent handler `node_measure_ingest`, hourly): finished production
+jobs with a payload report since the cursor, the workload resolved
+through PCS by JEDI task id (container from the job record, detector
+version and physics configuration from the task's dataset, payload
+version from the report), per stage CPU seconds per event, wall seconds
+per event, CPU efficiency at the job's core count, and peak resident
+memory. The cursor is the newest job modification time folded, kept in
+a state file beside the storage store. The ePIC queue detail page's
+observed section shows simulation and reconstruction CPU seconds per
+event beside each processor.
