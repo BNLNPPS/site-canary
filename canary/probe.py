@@ -160,10 +160,19 @@ PAYLOAD_STAGES = ('input', 'simulation', 'reconstruction', 'validation',
 CANARY_DATASET_ROOT = 'TEST/canary'
 
 
-def dispatch_payload_canary(now, task_name, queue_name, submit_script=None):
+def dispatch_payload_canary(now, task_name, queue_name, submit_script=None,
+                            row=None, row_text='', mem_limit_mb=None,
+                            signature='', pandaid=None):
     """Submit one payload canary through the production submit doer in
     its canary mode and record it as a ProbeRun of kind payload. Every
-    failure is recorded on the run and returned, never raised."""
+    failure is recorded on the run and returned, never raised.
+
+    ``row`` (1-based, the task's spec) or ``row_text`` (an exact
+    ``file,ext,nevents,ichunk`` row) chooses the manifest row instead
+    of row 1; ``mem_limit_mb`` puts an address-space limit on the payload;
+    ``signature`` and ``pandaid`` name the crash signature and the
+    crashed job a reproduction stands for (swf-epicprod
+    SEGFAULT_DIAGNOSIS.md, Reproduction). All are recorded on the run."""
     import os
     import re
     import subprocess
@@ -180,12 +189,28 @@ def dispatch_payload_canary(now, task_name, queue_name, submit_script=None):
         'CANARY_PAYLOAD_SUBMIT',
         str(Path(release) / 'scripts' / 'submit-evgen-task.py'))
     stamp = f"{now:%Y%m%dT%H%M%SZ}.{queue.name}"
+    data = {'kind': 'payload', 'task': task_name, 'stamp': stamp,
+            'dataset': f'epic:/{CANARY_DATASET_ROOT}/{stamp}'}
+    if row:
+        data['row'] = int(row)
+    if row_text:
+        data['row_text'] = row_text
+    if mem_limit_mb:
+        data['mem_limit_mb'] = int(mem_limit_mb)
+    if signature:
+        data['signature'] = signature
+        data['reproduction_of'] = int(pandaid) if pandaid else None
     run_row = ProbeRun.objects.create(
         queue=queue, submitted_at=now, trigger=ProbeRun.Trigger.MANUAL,
-        data={'kind': 'payload', 'task': task_name, 'stamp': stamp,
-              'dataset': f'epic:/{CANARY_DATASET_ROOT}/{stamp}'})
+        data=data)
     cmd = [sys.executable, submit_script, '--task-name', task_name,
            '--canary-stamp', stamp, '--canary-queue', queue.name]
+    if row_text:
+        cmd += ['--canary-row-text', row_text]
+    elif row:
+        cmd += ['--canary-row', str(int(row))]
+    if mem_limit_mb:
+        cmd += ['--canary-mem-limit-mb', str(int(mem_limit_mb))]
     proxy = os.environ.get('EVGEN_X509_PROXY')
     if proxy:
         cmd += ['--proxy', proxy]

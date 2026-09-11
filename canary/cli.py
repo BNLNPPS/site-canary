@@ -129,7 +129,10 @@ def cmd_payload_canary(args):
     setup_django()
     from . import probe
     now = datetime.now(dt_timezone.utc)
-    result = probe.dispatch_payload_canary(now, args.task, args.queue)
+    result = probe.dispatch_payload_canary(
+        now, args.task, args.queue, row=args.row, row_text=args.row_text,
+        mem_limit_mb=args.mem_limit_mb, signature=args.signature,
+        pandaid=args.pandaid)
     if args.json:
         print(json.dumps(result, indent=2))
     else:
@@ -213,6 +216,19 @@ def main(argv=None):
                                 'manifest row and configuration the canary runs')
     p_payload.add_argument('--queue', required=True,
                            help='the PanDA queue to run it on')
+    p_payload.add_argument('--row', type=int, default=0,
+                           help='this manifest row of the task (1-based) '
+                                'instead of the first')
+    p_payload.add_argument('--row-text', default='',
+                           help='this exact manifest row '
+                                '(file,ext,nevents,ichunk) instead of one '
+                                "of the task's: a crashed job's row")
+    p_payload.add_argument('--mem-limit-mb', type=int, default=0,
+                           help='an address-space limit on the payload, MB')
+    p_payload.add_argument('--signature', default='',
+                           help='the crash signature this run reproduces')
+    p_payload.add_argument('--pandaid', type=int, default=0,
+                           help='the crashed job this run reproduces')
     p_payload.add_argument('--json', action='store_true',
                            help='JSON output')
     p_payload.set_defaults(func=cmd_payload_canary)
