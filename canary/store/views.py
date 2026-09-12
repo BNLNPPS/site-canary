@@ -96,7 +96,7 @@ def probes_page(request):
         last = probe_mod.last_run(queue)
         completed = (queue.probe_runs
                      .exclude(status=ProbeRun.Status.SUBMITTED)
-                     .exclude(data__kind='payload')
+                     .exclude(data__contains={'kind': 'payload'})
                      .order_by('-submitted_at').first())
         health, health_reason = _probe_health(completed)
         phase, phase_state = _run_phase(last)

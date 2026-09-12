@@ -35,7 +35,7 @@ def _landing_runs(queue):
     """The queue's landing-probe runs. Payload canaries share the table
     (``data.kind`` = payload) but neither anchor the probe schedule nor
     speak for site health."""
-    return queue.probe_runs.exclude(data__kind='payload')
+    return queue.probe_runs.exclude(data__contains={'kind': 'payload'})
 
 
 def last_run(queue):
