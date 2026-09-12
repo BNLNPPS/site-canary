@@ -391,6 +391,7 @@ JOB_COLUMNS = (
     'modificationhost', 'creationtime', 'starttime', 'endtime', 'attemptnr',
     'exeerrorcode', 'exeerrordiag', 'piloterrorcode', 'piloterrordiag',
     'taskbuffererrorcode', 'taskbuffererrordiag',
+    'ddmerrorcode', 'ddmerrordiag', 'transexitcode', 'jobmetrics',
 )
 TERMINAL_JOB_STATES = ('finished', 'failed', 'cancelled', 'closed')
 FAILED_TASK_STATES = ('failed', 'aborted', 'broken', 'exhausted')
@@ -635,8 +636,67 @@ def _collect_one(run_row, jobs, tasks, metadata, ingest_report, IngestError,
                                  for repo, v in (fp.get('cvmfs') or {}).items()}
                 data['gpu'] = bool((fp.get('gpu') or {}).get('present'))
                 counts['collected'] += 1
+    elif data.get('kind') == 'payload' and _payload_ran(job):
+        # The job failed after the payload had run to its exit (a stage-out
+        # or registration failure, DDM 200 on npps0 2026-09-11): the payload
+        # digest in the job metrics is the outcome, and a reproduction's
+        # verdict is that exit code (SEGFAULT_DIAGNOSIS.md, Reproduction).
+        _collect_payload_from_digest(run_row, job, data, ProbeRun, counts)
+        return
     else:
         run_row.status = ProbeRun.Status.FAILED
         counts['failed'] += 1
+    run_row.data = data
+    run_row.save(update_fields=['status', 'data', 'modified_at'])
+
+
+def _digest(jobmetrics):
+    """The payload digest the pilot carries in the job metrics string
+    (EPICPROD_PAYLOAD.md, the report): the payload* tokens as a dict."""
+    out = {}
+    for token in str(jobmetrics or '').split():
+        key, sep, value = token.partition('=')
+        if sep and key.startswith('payload'):
+            out[key] = value
+    return out
+
+
+def _payload_ran(job):
+    """True when a failed job's digest says the payload ran to an exit and
+    neither the executor nor the pilot reported an error of its own: the
+    failure came after the payload."""
+    digest = _digest(job.get('jobmetrics'))
+    return (digest.get('payloadExit', '') != ''
+            and not int(job.get('exeerrorcode') or 0)
+            and not int(job.get('piloterrorcode') or 0))
+
+
+def _collect_payload_from_digest(run_row, job, data, ProbeRun, counts):
+    """Collect a failed payload canary from the job digest: the exit code
+    and the stage it reached, with the job's own failure as the note. The
+    full report is not in the metatable, which the pilot writes for
+    finished jobs only."""
+    digest = _digest(job.get('jobmetrics'))
+    try:
+        rc = int(digest.get('payloadExit'))
+    except (TypeError, ValueError):
+        rc = None
+    after = (f"ddm {job.get('ddmerrorcode')}: {job.get('ddmerrordiag') or ''}"[:300]
+             if int(job.get('ddmerrorcode') or 0) else 'the job failed after the payload')
+    checks = [{'check': 'payload_exit', 'ok': rc == 0, 'detail': f'exit {rc}'}]
+    verdict = ({'state': 'degraded', 'reason': f'payload_exit: exit {rc}'} if rc != 0
+               else {'state': 'degraded', 'reason': after})
+    data.update({
+        'report': 'digest',
+        'payload_version': digest.get('payloadVersion', ''),
+        'payload_exit_code': rc,
+        'payload_stage': digest.get('payloadStage', ''),
+        'events_processed': int(digest['payloadEvents']) if digest.get('payloadEvents', '').isdigit() else None,
+        'checks': checks,
+        'verdict': verdict,
+        'collect_note': f'payload outcome from the job digest; {after}',
+    })
+    run_row.status = ProbeRun.Status.COLLECTED
+    counts['collected'] += 1
     run_row.data = data
     run_row.save(update_fields=['status', 'data', 'modified_at'])
