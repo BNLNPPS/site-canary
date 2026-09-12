@@ -124,7 +124,28 @@ standing installation on the swf-testbed host (`pandaserver02`).
   submits through the release's production submit doer
   (`scripts/submit-evgen-task.py` in canary mode, `CANARY_PAYLOAD_SUBMIT`
   overrides) with the agent's `EVGEN_X509_PROXY`. Collection of the
-  verdict rides the probe-dispatch cycle.
+  verdict rides the probe-dispatch cycle. A reproduction of a crash
+  signature (swf-epicprod SEGFAULT_DIAGNOSIS.md, Reproduction) is a
+  payload canary whose message also carries the signature, the crashed
+  job and a `request_id`; all three are recorded on the run
+  (`data.signature`, `data.reproduction_of`, `data.request_id`), and
+  the request id is how the requester joins the run to its request.
+- Collection cadence: every collection visit stamps the run with
+  `data.observed_at`, when PanDA was last read for it. Besides the
+  hourly tick, a five-minute cron (minutes 2, 7, 12 and so on, never
+  the hourly tick's minute, since the agent runs one dispatch cycle at
+  a time and drops a second request while one runs) enqueues
+  `probe_dispatch` with `collect_only=1`
+  (`scripts/enqueue-ops-message.py probe_dispatch --queue
+  /queue/canary.ops --namespace canary --created-by collect_cron
+  --extra collect_only=1`); the agent runs `canary probe-dispatch
+  --collect-only`, which collects the open runs and submits nothing,
+  and returns at once when no run is open, so the frequent tick costs
+  nothing between reproductions and never adds a submission. After
+  every collection, hourly or collect-only, the
+  agent runs the swf-monitor reconciliation of reproduction requests
+  with their runs (`scripts/segfault-reproductions-reconcile.py`);
+  that step is the platform's, outside this package.
 - Configuration: `CANARY_PANDA_DSN` and `CANARY_DB_*` (the swfdb
   store) in `/opt/swf-monitor/config/env/production.env` for the
   agent, and in `~/.env` for development use.

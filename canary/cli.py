@@ -132,7 +132,8 @@ def cmd_payload_canary(args):
     result = probe.dispatch_payload_canary(
         now, args.task, args.queue, row=args.row, row_text=args.row_text,
         mem_limit_mb=args.mem_limit_mb, signature=args.signature,
-        pandaid=args.pandaid, container=args.container)
+        pandaid=args.pandaid, container=args.container,
+        request_id=args.request_id)
     if args.json:
         print(json.dumps(result, indent=2))
     else:
@@ -233,6 +234,9 @@ def main(argv=None):
                            help="the container image to run instead of the "
                                 "task's configuration's (the image the "
                                 "crashed task ran)")
+    p_payload.add_argument('--request-id', default='',
+                           help='the identity of the reproduction request '
+                                'this run answers, recorded on the run')
     p_payload.add_argument('--json', action='store_true',
                            help='JSON output')
     p_payload.set_defaults(func=cmd_payload_canary)

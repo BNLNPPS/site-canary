@@ -5,7 +5,7 @@ probes page both read through here.
 """
 import logging
 import os
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 logger = logging.getLogger('canary.probe')
 
@@ -162,7 +162,8 @@ CANARY_DATASET_ROOT = 'TEST/canary'
 
 def dispatch_payload_canary(now, task_name, queue_name, submit_script=None,
                             row=None, row_text='', mem_limit_mb=None,
-                            signature='', pandaid=None, container=''):
+                            signature='', pandaid=None, container='',
+                            request_id=''):
     """Submit one payload canary through the production submit doer in
     its canary mode and record it as a ProbeRun of kind payload. Every
     failure is recorded on the run and returned, never raised.
@@ -171,8 +172,10 @@ def dispatch_payload_canary(now, task_name, queue_name, submit_script=None,
     ``file,ext,nevents,ichunk`` row) chooses the manifest row instead
     of row 1; ``mem_limit_mb`` puts an address-space limit on the payload;
     ``signature`` and ``pandaid`` name the crash signature and the
-    crashed job a reproduction stands for (swf-epicprod
-    SEGFAULT_DIAGNOSIS.md, Reproduction). All are recorded on the run."""
+    crashed job a reproduction stands for, and ``request_id`` the
+    request the run answers, so the requester joins run to request
+    exactly (swf-epicprod SEGFAULT_DIAGNOSIS.md, Reproduction). All are
+    recorded on the run."""
     import os
     import re
     import subprocess
@@ -200,6 +203,8 @@ def dispatch_payload_canary(now, task_name, queue_name, submit_script=None,
     if signature:
         data['signature'] = signature
         data['reproduction_of'] = int(pandaid) if pandaid else None
+    if request_id:
+        data['request_id'] = request_id
     if container:
         data['container'] = container
     run_row = ProbeRun.objects.create(
@@ -590,6 +595,8 @@ def _collect_one(run_row, jobs, tasks, metadata, ingest_report, IngestError,
 
     already_started = bool(data.get('started_at'))
     data.update(_job_facts(job, run_row.queue))
+    # When PanDA was last read for this run: what a page may call fresh.
+    data['observed_at'] = _utc(datetime.utcnow())
     if task_state:
         data['task_status'] = task_state
     if job['jobstatus'] not in TERMINAL_JOB_STATES:
