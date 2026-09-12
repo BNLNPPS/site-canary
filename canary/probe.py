@@ -333,6 +333,8 @@ def _collect_payload(run_row, job, raw_metadata, data, ProbeRun, counts):
         counts['finished'] += 1
     else:
         checks, verdict = payload_verdict(report)
+        if isinstance(report.get('fatal'), dict):
+            data['fatal'] = report['fatal']
         data.update({
             'report': 'collected',
             'payload_version': report.get('payload_version') or '',
@@ -595,6 +597,16 @@ def _collect_one(run_row, jobs, tasks, metadata, ingest_report, IngestError,
 
     already_started = bool(data.get('started_at'))
     data.update(_job_facts(job, run_row.queue))
+    # Keep observed payload failure separate from the pilot's final exit.
+    # A signal handler can hang until the pilot kills the job at maxtime.
+    digest = _digest(job.get('jobmetrics'))
+    if digest.get('payloadFatalSignal') in ('6', '7', '8', '11'):
+        data['fatal'] = {
+            'signal': int(digest['payloadFatalSignal']),
+            'stage': digest.get('payloadFatalStage', ''),
+            'terminated': digest.get('payloadFatalStalled') == '1',
+            'source': 'job_digest',
+        }
     # When PanDA was last read for this run: what a page may call fresh.
     data['observed_at'] = _utc(datetime.utcnow())
     if task_state:

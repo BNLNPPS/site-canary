@@ -146,6 +146,12 @@ standing installation on the swf-testbed host (`pandaserver02`).
   agent runs the swf-monitor reconciliation of reproduction requests
   with their runs (`scripts/segfault-reproductions-reconcile.py`);
   that step is the platform's, outside this package.
+- Payload fatal evidence is retained independently of execution status:
+  `data.fatal` carries the full canary report's fatal record, or the
+  `payloadFatalSignal`, `payloadFatalStage` and `payloadFatalStalled`
+  digest fields. A pilot timeout can therefore coexist with an observed
+  payload crash. The platform decides what that evidence establishes
+  about a requested reproduction; the store does not match crash signatures.
 - Configuration: `CANARY_PANDA_DSN` and `CANARY_DB_*` (the swfdb
   store) in `/opt/swf-monitor/config/env/production.env` for the
   agent, and in `~/.env` for development use.
