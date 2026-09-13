@@ -680,14 +680,22 @@ def _digest(jobmetrics):
     return out
 
 
+# Pilot errors raised after the payload has exited: the stage-out of the
+# job's outputs and log (1137, "Failed to stage-out file", GREX n388
+# 2026-09-13). The payload's own exit in the digest is the outcome then.
+PILOT_ERRORS_AFTER_PAYLOAD = {1137}
+
+
 def _payload_ran(job):
     """True when a failed job's digest says the payload ran to an exit and
-    neither the executor nor the pilot reported an error of its own: the
-    failure came after the payload."""
+    the executor reported no error and the pilot none of its own before
+    the payload's end (a stage-out error comes after it): the failure
+    came after the payload."""
     digest = _digest(job.get('jobmetrics'))
+    pilot_error = int(job.get('piloterrorcode') or 0)
     return (digest.get('payloadExit', '') != ''
             and not int(job.get('exeerrorcode') or 0)
-            and not int(job.get('piloterrorcode') or 0))
+            and (not pilot_error or pilot_error in PILOT_ERRORS_AFTER_PAYLOAD))
 
 
 def _collect_payload_from_digest(run_row, job, data, ProbeRun, counts):
