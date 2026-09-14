@@ -13,7 +13,7 @@ sys.path.insert(0, REPO_ROOT)
 from canary import guard  # noqa: E402
 
 Q = 'BNL_OSG_EPIC_PROD_1'
-CAL = {Q: 3600.0}          # median finished walltime: fast means under 900 s
+CAL = {Q: 3600.0}          # median finished walltime: fast means under 1800 s
 
 
 def _rows(host, failed=0, finished=0, task=1, duration=60, queue=Q, end=None):
@@ -51,7 +51,7 @@ def test_black_hole_trips():
 
 
 def test_below_floor_not_judged():
-    rows = _rows('bad.site.edu', failed=9, duration=60) + _rows('good.site.edu', finished=1)
+    rows = _rows('bad.site.edu', failed=7, duration=60) + _rows('good.site.edu', finished=1)
     out = guard.decide_nodes(rows, CAL)
     assert out['tripped'] == []
     assert 'bad.site.edu' not in out['queues'][Q]['nodes']
@@ -60,14 +60,24 @@ def test_below_floor_not_judged():
 
 def test_task_failing_everywhere_is_not_a_node():
     rows = _rows('a.site.edu', failed=12, duration=60) + _rows('b.site.edu', failed=12, duration=60)
+    rows += _rows('c.site.edu', finished=2, task=2)     # the queue's other nodes finish other tasks
     out = guard.decide_nodes(rows, CAL)
     assert out['tripped'] == []
     for host in ('a.site.edu', 'b.site.edu'):
         assert out['queues'][Q]['nodes'][host]['reason'] == guard.TASKS_FAIL_EVERYWHERE
 
 
+def test_single_node_queue_is_the_queues_case():
+    # f-6: the queue's only node that day; nothing finished on any other node
+    rows = _rows('fxz4', failed=132, duration=184) + _rows('fxz4', finished=7)
+    out = guard.decide_nodes(rows, {Q: 4672.8})
+    v = out['queues'][Q]['nodes']['fxz4']
+    assert v['state'] == 'clear' and v['reason'] == guard.NO_OTHER_NODE
+    assert v['evidence']['other_nodes_finishing'] == 0
+
+
 def test_slow_failures_are_not_fast():
-    rows = _rows('bad.site.edu', failed=12, duration=3000) + _rows('good.site.edu', finished=2)
+    rows = _rows('bad.site.edu', failed=12, duration=3400) + _rows('good.site.edu', finished=2)
     out = guard.decide_nodes(rows, CAL)
     assert out['tripped'] == []
     assert out['queues'][Q]['nodes']['bad.site.edu']['reason'] == guard.NOT_FAST
@@ -103,7 +113,7 @@ def test_settings_override_and_seed():
     rows = _rows('bad.site.edu', failed=5, duration=60) + _rows('good.site.edu', finished=2)
     out = guard.decide_nodes(rows, CAL, {'min_jobs': 5})
     assert out['tripped'] == [(Q, 'bad.site.edu')]
-    assert out['settings']['min_jobs'] == 5 and out['settings']['fast_ratio'] == 0.25
+    assert out['settings']['min_jobs'] == 5 and out['settings']['fast_ratio'] == 0.5
 
 
 def test_malformed_rows_are_counted():
@@ -123,6 +133,51 @@ def test_hosts_are_distinct_per_queue():
     out = guard.decide_nodes(rows, {'UM_GREX_PanDA_1': 7200.0, Q: 3600.0})
     assert out['tripped'] == [('UM_GREX_PanDA_1', 'n358')]
     assert out['queues'][Q]['nodes']['n358']['state'] == 'clear'
+
+
+def test_attribution_looks_back_beyond_the_window():
+    # f-6: the node's tasks finished on other nodes earlier in the day,
+    # none inside the window.
+    rows = _rows('fxz4', failed=12, duration=180)
+    out = guard.decide_nodes(rows, CAL)
+    assert out['queues'][Q]['nodes']['fxz4']['reason'] == guard.NO_OTHER_NODE
+    out = guard.decide_nodes(rows, CAL, finished_elsewhere={Q: {2: {'other.node'}}})
+    assert out['queues'][Q]['nodes']['fxz4']['reason'] == guard.TASKS_FAIL_EVERYWHERE
+    out = guard.decide_nodes(rows, CAL, finished_elsewhere={Q: {1: {'other.node'}}})
+    assert out['tripped'] == [(Q, 'fxz4')]
+    # a finish on the same host only is not elsewhere
+    out = guard.decide_nodes(rows, CAL, finished_elsewhere={Q: {1: {'fxz4'}}})
+    assert out['tripped'] == []
+
+
+def test_not_nodes_are_reported_not_judged():
+    rows = _rows('slot1_1@osgsub01.sdcc.bnl.gov', failed=30, duration=5) + _rows('good.site.edu', finished=2)
+    out = guard.decide_nodes(rows, CAL, {'not_nodes': ['osgsub01.sdcc.bnl.gov']})
+    assert out['tripped'] == []
+    assert 'osgsub01.sdcc.bnl.gov' not in out['queues'][Q]['nodes']
+    assert out['queues'][Q]['not_nodes'] == {'osgsub01.sdcc.bnl.gov': {'failed': 30, 'finished': 0}}
+    assert out['queues'][Q]['hosts'] == 1 and out['queues'][Q]['jobs'] == 32
+
+
+def test_storm_is_the_queues_event():
+    rows = []
+    for i in range(12):
+        rows += _rows(f'nid{i:04d}', failed=10, duration=60)
+    rows += _rows('healthy', finished=3)
+    out = guard.decide_nodes(rows, CAL, {'storm_nodes': 10})
+    q = out['queues'][Q]
+    assert out['tripped'] == [] and q['queue_event'] and q['storm_hosts'] == 12 and q['tripped'] == 0
+    assert all(v['reason'] == guard.QUEUE_EVENT for v in q['nodes'].values())
+    out = guard.decide_nodes(rows, CAL, {'storm_nodes': 12})
+    assert len(out['tripped']) == 12 and not out['queues'][Q]['queue_event']
+
+
+def test_slots_of_one_host_merge():
+    rows = _rows('slot1_1@warlock12', failed=5, duration=2135) + _rows('slot1_2@warlock12', failed=5, duration=2135)
+    rows += _rows('other.node', finished=2)
+    out = guard.decide_nodes(rows, {Q: 6588.0})          # the OSG median; fast under 3294 s
+    assert out['tripped'] == [(Q, 'warlock12')]
+    assert out['queues'][Q]['nodes']['warlock12']['evidence']['jobs'] == 10
 
 
 if __name__ == '__main__':

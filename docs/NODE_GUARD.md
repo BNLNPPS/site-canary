@@ -49,14 +49,32 @@ when all of these hold in the window:
   `fast_ratio` of the queue's median finished walltime (the census's
   calibration), so a node that runs jobs to completion and then loses
   them is a different condition;
-- the same tasks finish elsewhere on the queue in the window: at least
-  one finished job of a task the host failed, on another host. This is
-  the attribution: the failures follow the node, not the task and not
-  the queue.
+- the same tasks finish elsewhere on the queue: at least one finished
+  job of a task the host failed, on another host of the queue, over
+  the attribution window (`attribution_h`, longer than the judging
+  window, because a queue's other nodes need not finish inside the
+  same few hours). This is the attribution: the failures follow the
+  node, not the task and not the queue.
 
 A node under the job floor is not judged. A node whose failures are
-not fast, or whose tasks fail everywhere, is not a black hole; the
-queue and task detectors own those.
+not fast, or whose tasks finish nowhere on the queue while other nodes
+finish other work (`tasks_fail_everywhere`), is not a black hole; the
+task detector owns that. Two conditions are the queue's, and the guard
+names them rather than exclude for them:
+
+- no other node of the queue finished anything in the attribution
+  window (`no_other_node`): node and queue are one thing there, as on
+  a cloud pool scaled to one node, and the queue's failure window is
+  the instrument;
+- more than `storm_nodes` hosts of one queue trip at once
+  (`queue_event`): a storm, the queue's condition, handed to the queue
+  breaker; the hosts are cleared with that reason and the queue reads
+  `queue_event` with the count.
+
+A host named in `not_nodes` is a submit host that a job dies on before
+it lands (the harvester and the OSG submit host appear as the
+modificationhost of such jobs); it is never judged as a node, and its
+outcomes are reported beside the queue.
 
 The decision is a pure function over rows (`canary.guard.decide_nodes`)
 with the thresholds passed in, so the same evidence gives the same
@@ -77,8 +95,9 @@ twice the expiry. A person may clear or pin at any time.
 
 Until the model exists, the guard runs stateless: every cycle judges
 the window afresh, the cycle's state is the cached product
-`node_guard_state`, and each node's change of verdict is an action.
-Latching and expiry come with the model.
+`node_guard_state`, and each node's change of verdict is an action (a
+trip is always recorded; a clear only after a trip; a standing trip
+hourly). Latching and expiry come with the model.
 
 ## Modes and settings
 
@@ -90,12 +109,42 @@ visible on the System page:
 | `node_guard.enabled` | false | the global switch |
 | `node_guard.mode` | shadow | `shadow`: decide, record and announce what the guard would do, act on nothing; `live`: exclude |
 | `node_guard.queues` | [] | the queues judged; empty means every queue with production jobs in the window |
-| `node_guard.window_h` | 2 | the sliding window |
-| `node_guard.min_jobs` | 10 | the job floor per node |
+| `node_guard.window_h` | 4 | the judging window |
+| `node_guard.attribution_h` | 24 | the look back for the tasks' finishes on other nodes |
+| `node_guard.min_jobs` | 8 | the job floor per node |
 | `node_guard.failed_fraction` | 0.8 | failed share of the node's terminal jobs |
 | `node_guard.fast_fraction` | 0.5 | fast share of the node's failures |
-| `node_guard.fast_ratio` | 0.25 | fast means shorter than this share of the queue's median finished walltime |
+| `node_guard.fast_ratio` | 0.5 | fast means shorter than this share of the queue's median finished walltime |
+| `node_guard.storm_nodes` | 10 | more tripped hosts than this on one queue is the queue's event |
+| `node_guard.not_nodes` | the harvester and OSG submit hosts | hosts that are not worker nodes |
 | `node_guard.expiry_h` | 24 | a black hole's life before half open |
+
+## What the backtest measured
+
+The decision at these defaults, run over the job record in four-hour
+windows stepped by thirty minutes with a 24-hour attribution look
+back, against the crash record's node events (swf-epicprod
+docs/SEGFAULT_DIAGNOSIS.md, the findings), 2026-09-14:
+
+- f-9, five GREX nodes, 2026-08-04 to 08-07: n389, n390, n391 and
+  n392 trip in the first window that holds the event's start and stay
+  tripped through it (n389 peaks at 2,070 failures in one window); two
+  further GREX nodes of the same days trip for shorter spells.
+- f-7, the same nodes on 2026-08-10: n388 and n391 trip at 14:54.
+- f-5, warlock12 at BNL_OSG_EPIC_PROD_1, 2026-08-16: trips from the
+  first window, its two slots read as one host; two nodes of the
+  exclusion list's ComputeCanada-Fir family trip beside it.
+- f-8, the August storm at BNL_OSG_EPIC_PROD_1 (316 hosts in one
+  window) and the Perlmutter storm of 2026-08-20 (123 hosts): read as
+  the queue's event, no node tripped.
+- f-6, one Google node on 2026-08-18: not tripped, `no_other_node`;
+  the pool had one node that day, and the queue's failure window (139
+  outcomes, 95% failed) is the instrument that trips.
+
+The fast ratio is 0.5 because f-5's kills came at 35.5 minutes, 0.32
+of the queue's median finished walltime, and f-9's at 14 to 16
+minutes, 0.15; the attribution looks back a day because f-6's node
+had no other node finishing in its hour.
 
 In shadow mode a tripped node reads `would_exclude`; in live mode
 `excluded`. Both are recorded the same way; only actuation differs.
