@@ -11,7 +11,10 @@ modificationhost, as given), ``jobstatus`` (``finished`` or ``failed``),
 ``jeditaskid``, ``duration_s`` (end minus start in seconds, or None when
 either is missing) and ``endtime`` (anything orderable, or None). A row
 missing ``queue``, ``host`` or ``jobstatus`` is malformed and counted,
-never silently dropped.
+never silently dropped. Optional, carried into the evidence when
+present: ``site`` (the execute site the caller resolved, the actual
+site behind a pool queue), ``pandaid``, and ``error`` (the failure's
+error label as the caller composed it, e.g. ``pilot 1305``).
 """
 
 DEFAULTS = {
@@ -106,7 +109,9 @@ def decide_nodes(rows, calibration, settings=None, finished_elsewhere=None):
             continue
         h = q['hosts'].setdefault(host, [])
         h.append({'status': status, 'task': row.get('jeditaskid'),
-                  'duration_s': row.get('duration_s'), 'endtime': row.get('endtime')})
+                  'duration_s': row.get('duration_s'), 'endtime': row.get('endtime'),
+                  'site': row.get('site') or '', 'pandaid': row.get('pandaid'),
+                  'error': row.get('error') or ''})
         if status == 'finished' and row.get('jeditaskid') is not None:
             q['finished_tasks'].setdefault(row['jeditaskid'], set()).add(host)
 
@@ -154,6 +159,15 @@ def decide_nodes(rows, calibration, settings=None, finished_elsewhere=None):
             'settings': cfg}
 
 
+def _pct(values, q):
+    """The q-th percentile of a sorted list by nearest rank; None when
+    the list is empty."""
+    if not values:
+        return None
+    k = max(0, min(len(values) - 1, int(q * (len(values) - 1) + 0.5)))
+    return round(values[k], 1)
+
+
 def _judge(host, entries, finished_tasks, finishing_hosts, median, fast_under, cfg):
     n = len(entries)
     failed = [e for e in entries if e['status'] == 'failed']
@@ -173,7 +187,27 @@ def _judge(host, entries, finished_tasks, finishing_hosts, median, fast_under, c
         t for t in tasks_failed
         if any(other != host for other in finished_tasks.get(t, ())))
     ends = [e['endtime'] for e in entries if e.get('endtime') is not None]
+    sites = {}
+    for e in entries:
+        if e.get('site'):
+            sites[e['site']] = sites.get(e['site'], 0) + 1
+    site = max(sites, key=sites.get) if sites else ''
+    durations = sorted(float(e['duration_s']) for e in failed if e.get('duration_s') is not None)
+    errors = {}
+    for e in failed:
+        if e.get('error'):
+            errors[e['error']] = errors.get(e['error'], 0) + 1
+    error_codes = sorted(errors.items(), key=lambda kv: (-kv[1], kv[0]))[:3]
+    recent = sorted((e for e in failed if e.get('pandaid') is not None),
+                    key=lambda e: (e.get('endtime') is None, e.get('endtime')), reverse=True)
+    sample_jobs = [e['pandaid'] for e in recent[:5]]
+    elsewhere_hosts = {t: len(finished_tasks.get(t, set()) - {host}) for t in finished_elsewhere}
     evidence = {
+        'site': site, 'sites': sorted(sites),
+        'failed_duration_s': {'p10': _pct(durations, 0.1), 'median': _pct(durations, 0.5),
+                              'p90': _pct(durations, 0.9)},
+        'error_codes': error_codes, 'sample_jobs': sample_jobs,
+        'tasks_finished_elsewhere_hosts': elsewhere_hosts,
         'jobs': n, 'failed': len(failed), 'finished': finished,
         'failed_fraction': round(failed_fraction, 3),
         'fast_failed': fast, 'failed_no_duration': no_duration,

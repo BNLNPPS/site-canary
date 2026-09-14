@@ -180,6 +180,27 @@ def test_slots_of_one_host_merge():
     assert out['queues'][Q]['nodes']['warlock12']['evidence']['jobs'] == 10
 
 
+def test_evidence_carries_site_durations_codes_and_samples():
+    rows = []
+    for i in range(10):
+        rows.append({'queue': Q, 'host': 'slot1_1@warlock12', 'jobstatus': 'failed', 'jeditaskid': 1,
+                     'duration_s': 2100 + i * 10, 'endtime': i, 'site': 'BEOCAT-SLATE',
+                     'pandaid': 1000 + i, 'error': 'pilot 1305' if i % 3 else 'trans 139'})
+    rows += _rows('other.node', finished=2) + _rows('third.node', finished=1)
+    out = guard.decide_nodes(rows, {Q: 6588.0})
+    e = out['queues'][Q]['nodes']['warlock12']['evidence']
+    assert e['site'] == 'BEOCAT-SLATE' and e['sites'] == ['BEOCAT-SLATE']
+    assert e['failed_duration_s'] == {'p10': 2110.0, 'median': 2150.0, 'p90': 2180.0}
+    assert e['error_codes'] == [('pilot 1305', 6), ('trans 139', 4)]
+    assert e['sample_jobs'] == [1009, 1008, 1007, 1006, 1005]
+    assert e['tasks_finished_elsewhere_hosts'] == {1: 2}
+    # rows without the optional keys still judge, with empty evidence fields
+    out = guard.decide_nodes(_rows('bare', failed=8, duration=60) + _rows('other', finished=1), CAL)
+    e = out['queues'][Q]['nodes']['bare']['evidence']
+    assert e['site'] == '' and e['error_codes'] == [] and e['sample_jobs'] == []
+    assert e['failed_duration_s']['median'] == 60.0
+
+
 if __name__ == '__main__':
     names = [n for n in dir() if n.startswith('test_')]
     failed = 0
