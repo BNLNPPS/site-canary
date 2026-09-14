@@ -8,4 +8,5 @@ cd "$(dirname "$0")/.."
 PY=python3
 [ -x .venv/bin/python ] && PY=.venv/bin/python
 [ -n "$VIRTUAL_ENV" ] && [ -x "$VIRTUAL_ENV/bin/python" ] && PY="$VIRTUAL_ENV/bin/python"
-exec "$PY" tests/test_basic.py
+"$PY" tests/test_basic.py || exit 1
+exec "$PY" tests/test_guard.py

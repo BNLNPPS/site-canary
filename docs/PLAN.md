@@ -191,3 +191,14 @@ scratch mount reads beside the node's platform and kernel.
 The carrier-embedded rider: gather decision, packet schema publication,
 collection ladder, collector deduplication. The rider extends the
 node-level map to every node real work reaches.
+
+### 10. Node guard
+
+The black hole guard at node level, plan of record
+[NODE_GUARD.md](NODE_GUARD.md): a node that takes jobs and kills them
+fast is found from the job record every five minutes (`canary.guard`,
+a pure decision with dict tests), recorded in the node map as a
+`NodeState` with expiry and half open, announced, and kept from taking
+more work through the published exclusion, the wrapper and landing
+checks, and the rendered OSG clause. Runs in shadow mode first: decides,
+records and announces what it would do, acts on nothing.

@@ -238,7 +238,8 @@ platform role adds a further preventive option: a carrier that checks
 its landing against known-bad fingerprints and declines the work.
 Production-side recovery from burn-through (raised retry ceilings,
 easy rerun) is WFMS scope; preventing and bounding the burn is
-canary scope.
+canary scope. The node-level instrument is the node guard,
+[NODE_GUARD.md](NODE_GUARD.md).
 
 ## AI-ready products
 

@@ -316,6 +316,24 @@ first failure as its reason otherwise, and failing when the job failed.
 The checks, the DIDs, the payload version and the registration metadata
 stay on the run.
 
+## Node guard
+
+`canary/guard.py` is the guard's decision (docs/NODE_GUARD.md, The
+detector): `normalize_host` takes the batch host from a job record's
+modificationhost (the slot prefix stripped), and `decide_nodes(rows,
+calibration, settings)` judges every host of every queue in the rows,
+a pure function over dicts: hosts under the job floor are counted and
+not listed; a host at the floor is `tripped` (reason `black_hole`) or
+`clear` with the reason that cleared it (`failed_fraction`,
+`no_calibration`, `not_fast`, `tasks_fail_everywhere`) and its evidence
+(jobs, failed, finished, fast failures, failures without a duration,
+the tasks failed and those finishing elsewhere, the window's first and
+last end). Fast means shorter than `fast_ratio` of the queue's median
+finished walltime; a failure without a duration counts against
+tripping. `tests/test_guard.py` holds the dict tests. The cycle that
+feeds it, the settings, the record and the actuation are the platform's
+(swf-monitor `scripts/node-guard-cycle.py`, the Node guard page).
+
 ## Measurement store
 
 The node measurement store of [MEASUREMENTS.md](MEASUREMENTS.md), in
