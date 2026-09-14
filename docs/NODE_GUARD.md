@@ -84,9 +84,11 @@ verdict anywhere and the thresholds are tested as data.
 
 The node's state lives in the node map (the canary store), the queue
 pattern repeated at node level: a `NodeState` per `(queue, host)` with
-its status, the verdict that set it and its evidence (jobs, failed,
-finished, fast failures, the tasks failed and where they finished,
-first and last job in the window), the status change with its actor
+its status, the verdict that set it and its evidence (the actual site,
+jobs, failed, finished, fast failures, how long the failures ran, their
+error codes, the tasks failed and where they finished, the most recent
+failed jobs, first and last job in the window), the status change with
+its actor
 (guard or manual), and an expiry. Status vocabulary: `clear`,
 `black_hole`, `half_open`, `pinned` (a person's decision, not
 overridden). A black hole expires after `expiry_h` into `half_open`:
@@ -176,10 +178,12 @@ fetch.
 
 ## Readers and notices
 
-- The Node guard page under PanDA on the monitor: every judged node
-  with its state, reason and evidence, the queues' calibration, the
-  switches, the cycle's time and errors; reads the cached product,
-  computes nothing.
+- The Node guard page under Sites on the monitor: every judged node
+  with its site (the pilot-reported glidein site behind a pool queue,
+  else the site its domain names), state, reason, first and last job,
+  and its evidence under a triangle; the queues' calibration and any
+  storm; the switches, the cycle's time and errors. Reads the cached
+  product, computes nothing.
 - The ePIC queues page: a node section per queue with the guard's
   current verdicts.
 - Every change of a node's verdict is an action (`node_guard_decision`)
