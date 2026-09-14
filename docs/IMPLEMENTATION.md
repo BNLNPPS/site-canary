@@ -330,9 +330,19 @@ not listed; a host at the floor is `tripped` (reason `black_hole`) or
 the tasks failed and those finishing elsewhere, the window's first and
 last end). Fast means shorter than `fast_ratio` of the queue's median
 finished walltime; a failure without a duration counts against
-tripping. `tests/test_guard.py` holds the dict tests. The cycle that
-feeds it, the settings, the record and the actuation are the platform's
-(swf-monitor `scripts/node-guard-cycle.py`, the Node guard page).
+tripping. `tests/test_guard.py` holds the dict tests.
+
+The record is the store's: `NodeState`, one row per `(queue, host)`
+with status (`clear`, `black_hole`, `half_open`, `pinned`), reason, the
+evidence that set it, the guard's last reading, the black hole's
+`opened_at` and `expires_at`, the reopen and trip counts, the actual
+site, and the NodeEnvironment when a landing has fingerprinted the
+host; `NodeStateChange`, every transition with actor (guard or
+manual), user, reason and evidence (migration 0008).
+`canary/store/nodes.py`: `transition` (pure; `tests/test_nodes.py`),
+`apply`, `set_status`, `current_exclusion`. The cycle that feeds it,
+the settings and the actuation are the platform's (swf-monitor
+`scripts/node-guard-cycle.py`, the Node guard page).
 
 ## Measurement store
 

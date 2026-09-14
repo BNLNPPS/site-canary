@@ -95,11 +95,18 @@ overridden). A black hole expires after `expiry_h` into `half_open`:
 one job may land; a clean outcome clears, a fast failure reopens for
 twice the expiry. A person may clear or pin at any time.
 
-Until the model exists, the guard runs stateless: every cycle judges
-the window afresh, the cycle's state is the cached product
-`node_guard_state`, and each node's change of verdict is an action (a
-trip is always recorded; a clear only after a trip; a standing trip
-hourly). Latching and expiry come with the model.
+The record is `canary.store.nodes`: `transition` is the pure rule
+(the node's current state and the cycle's reading in, the next state
+and the change out; `tests/test_nodes.py`), `apply` runs it over the
+store one node per transaction, `set_status` is a person's clear, pin
+or hand-opened black hole (no expiry), `current_exclusion` the black
+holes as a carrier needs them. Every cycle tells the record every
+judged node's verdict and, for every held node the floor did not
+reach, its window counts, so a latched or half-open node is revisited
+each cycle. A clear node with no record gets none. Each change of the
+record is a `node_guard_decision` action; the cycle's own reading of
+every judged node is the cached product `node_guard_state`, and a
+standing black hole is recorded hourly.
 
 ## Modes and settings
 
@@ -199,7 +206,7 @@ fetch.
    cron enqueue; the Node guard page and its menu entry. Switched on in
    shadow mode.
 4. The `NodeState` model and its migration in the canary store; latch,
-   expiry and half open; the manual clear and pin; the queues page
-   section.
+   expiry and half open; the manual clear and pin (done 2026-09-14,
+   canary migration 0008). The queues page section.
 5. The published exclusion; the wrapper check and the landing check;
    the rendered OSG clause and its handoff; live mode.

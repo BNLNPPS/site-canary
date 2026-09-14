@@ -330,3 +330,96 @@ class NodeMeasurement(models.Model):
 
     def __str__(self):
         return f'{self.queue.name}:{self.processor}:{self.stage} ({self.jobs} jobs)'
+
+
+class NodeState(models.Model):
+    """The node guard's record of one node (docs/NODE_GUARD.md, The
+    record): the queue pattern at node level. A node is the batch host
+    within its queue, the identity a submit description excludes; when a
+    landing has fingerprinted the host the record links to that
+    NodeEnvironment.
+
+    Status: ``clear``; ``black_hole``, tripped by the guard, latched until
+    it expires; ``half_open``, expired, one job may land and its outcome
+    decides; ``pinned``, a person's status that the guard never changes.
+    ``opened_at`` and ``expires_at`` bound the current black hole;
+    ``evidence`` is the verdict that set the status, refreshed while it
+    stands; ``last_verdict`` the guard's latest reading of the node,
+    whatever the status.
+    """
+
+    class Status(models.TextChoices):
+        CLEAR = 'clear', 'Clear'
+        BLACK_HOLE = 'black_hole', 'Black hole'
+        HALF_OPEN = 'half_open', 'Half open'
+        PINNED = 'pinned', 'Pinned'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    queue = models.ForeignKey(Queue, on_delete=models.PROTECT,
+                              related_name='node_states')
+    host = models.CharField(max_length=200)
+    site = models.CharField(max_length=100, blank=True, default='')
+    node_environment = models.ForeignKey(NodeEnvironment, on_delete=models.SET_NULL,
+                                         null=True, blank=True,
+                                         related_name='node_states')
+    status = models.CharField(max_length=16, choices=Status.choices,
+                              default=Status.CLEAR)
+    reason = models.CharField(max_length=64, blank=True, default='')
+    evidence = models.JSONField(default=dict, blank=True)
+    last_verdict = models.JSONField(default=dict, blank=True)
+    opened_at = models.DateTimeField(null=True, blank=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    reopened = models.PositiveIntegerField(default=0)
+    trips = models.PositiveIntegerField(default=0)
+    first_seen_at = models.DateTimeField(null=True, blank=True)
+    last_seen_at = models.DateTimeField(null=True, blank=True)
+    data = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    modified_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'canary_node_state'
+        ordering = ['queue', 'host']
+        constraints = [
+            models.UniqueConstraint(fields=('queue', 'host'),
+                                    name='canary_node_state_key_uniq'),
+        ]
+        indexes = [
+            models.Index(fields=['status', '-modified_at'],
+                         name='canary_node_state_status_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.queue.name}/{self.host}:{self.status}'
+
+
+class NodeStateChange(models.Model):
+    """Status history with provenance: every node status transition, by
+    the guard or a person, with the reason and the evidence at the time."""
+
+    class Actor(models.TextChoices):
+        GUARD = 'guard', 'Guard'
+        MANUAL = 'manual', 'Manual'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    node = models.ForeignKey(NodeState, on_delete=models.CASCADE,
+                             related_name='changes')
+    old_status = models.CharField(max_length=16)
+    new_status = models.CharField(max_length=16)
+    actor = models.CharField(max_length=16, choices=Actor.choices)
+    username = models.CharField(max_length=100, blank=True, default='')
+    reason = models.TextField(blank=True, default='')
+    evidence = models.JSONField(default=dict, blank=True)
+    data = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'canary_node_state_change'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['node', '-created_at'],
+                         name='canary_node_change_time_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.node}:{self.old_status}->{self.new_status} ({self.actor})'
