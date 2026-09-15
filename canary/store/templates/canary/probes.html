@@ -241,7 +241,13 @@
 // configuration reloads the page; Run now opens the queued view, whose
 // stream reports the dispatch.
 (function () {
-  const base = '{{ request.META.SCRIPT_NAME }}';
+  // Full paths from the URL resolver, contiguous, so the external face's
+  // prefix rewrite maps them like every other link on the page.
+  const urls = {
+    config: "{% url 'canary:probe_config_api' %}",
+    runNow: "{% url 'canary:probe_run_now_api' %}",
+    payload: "{% url 'canary:payload_canary_api' %}"
+  };
   const plain = window.location.pathname;
   function post(url, body, form) {
     const note = form.querySelector('.probe-note') || document.getElementById('probe-note');
@@ -265,7 +271,7 @@
       const queueField = form.querySelector('[name=queue]');
       const queue = form.dataset.queue || (queueField && queueField.value) || '';
       const interval = form.querySelector('[name=interval_hours]');
-      post(base + '/canary/probes/api/config/',
+      post(urls.config,
            {queue: queue, action: form.dataset.action || 'save',
             interval_hours: interval ? interval.value : undefined}, form)
         .then(function (d) { if (d) window.location.replace(plain); });
@@ -276,7 +282,7 @@
       ev.preventDefault();
       const task = form.querySelector('[name=task]').value.trim();
       const queue = form.querySelector('[name=queue]').value;
-      post(base + '/canary/probes/api/payload-canary/', {task: task, queue: queue}, form)
+      post(urls.payload, {task: task, queue: queue}, form)
         .then(function (d) { if (d) window.location.replace(plain); });
     });
   });
@@ -284,7 +290,7 @@
     form.addEventListener('submit', function (ev) {
       ev.preventDefault();
       const queue = form.dataset.queue;
-      post(base + '/canary/probes/api/run-now/', {queue: queue}, form)
+      post(urls.runNow, {queue: queue}, form)
         .then(function (d) { if (d) window.location.replace(plain + '?queued=' + encodeURIComponent(queue)); });
     });
   });
