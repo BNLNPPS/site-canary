@@ -62,17 +62,35 @@ def next_due(queue, config=None, last=None):
     return last.submitted_at + timedelta(hours=config['interval_hours'])
 
 
-def due_queues(now):
+def due_queues(now, held=None):
     """The enabled queues whose next probe is due at ``now`` and which
-    have no probe run still awaiting an outcome."""
+    have no probe run still awaiting an outcome. A queue under a
+    declared downtime in force is not due (the probe would only measure
+    the declaration; its name goes on ``held`` when a list is given),
+    and the first probe after a declared window's end is due at once
+    (canary/declared.py)."""
     from canary.store.models import ProbeRun
+    from .declared import declared_info, probe_disposition
+    queues = list(configured_queues())
+    declared = declared_info([q.name for q in queues], now)
     due = []
-    for queue in configured_queues():
+    for queue in queues:
         config = probe_config(queue)
         latest = last_run(queue)
         if latest is not None and latest.status == ProbeRun.Status.SUBMITTED:
             continue
-        due_at = next_due(queue, config, last_submitted_run(queue))
+        last_submitted = last_submitted_run(queue)
+        disposition = probe_disposition(
+            declared.get(queue.name),
+            last_submitted.submitted_at if last_submitted is not None else None, now)
+        if disposition == 'hold':
+            if held is not None:
+                held.append(queue.name)
+            continue
+        if disposition == 'due':
+            due.append(queue)
+            continue
+        due_at = next_due(queue, config, last_submitted)
         if due_at is None or due_at <= now:
             due.append(queue)
     return due
@@ -103,8 +121,10 @@ def dispatch(now, queue_names=None, force=False, submit_cmd=None):
         results = [{'queue': name, 'outcome': 'unknown queue'}
                    for name in sorted(missing)]
     else:
-        targets = due_queues(now)
-        results = []
+        held = []
+        targets = due_queues(now, held=held)
+        results = [{'queue': name, 'outcome': 'held: declared downtime in force'}
+                   for name in held]
     # The probe runs the current campaign's production container, as PCS
     # records it, so a probe measures the site and not the nightly image;
     # unresolved, the submit script's own fallback applies and the run says so.

@@ -43,6 +43,24 @@ of the hosted deployment.
   projections through the snapper-ai publication helper in the same
   runtime (PLAN.md increment 7).
 
+## Declared downtime
+
+A downtime declared for a queue is not evidence about the queue. The
+policy evaluator leaves a queue's status alone while a rule is in force
+or while its latest passive sample overlaps a declared span (the
+verdict is still recorded, with the hold as `declared` in its
+evidence), and the probe dispatch sends no probe to a queue under a
+rule in force and sends the first probe after a window's end at once
+(`canary/declared.py`). What is declared comes from the provider named
+by `CANARY_DECLARED_PROVIDER`; the default, `http_provider`, reads the
+platform's declared record at `CANARY_DECLARED_URL`, by default
+`SWF_MONITOR_URL` + `/api/declared/` (anonymous GET; per queue the rule
+in force with its line, the declared spans with the pilot's cache lag
+added to each end, and the latest span end). The record itself is the
+platform's, collected from CRIC (swf-epicprod
+CONTINUOUS_PRODUCTION.md, Declared downtime). No provider, or a failed
+read, reads as nothing declared, logged.
+
 ## Canary page
 
 The packaged app serves the canary page (`canary.store.views`,

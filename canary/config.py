@@ -19,6 +19,16 @@ CVMFS_REPOS = config('CANARY_CVMFS_REPOS', cast=Csv(),
 # Policy file path; empty means the packaged ePIC policy.
 POLICY_PATH = config('CANARY_POLICY', default='')
 
+# The declared-downtime provider, ``module:function``, called as
+# ``provider(queue_names, now)`` and answering, per queue, what is
+# declared for it (canary/declared.py). The default reads the platform's
+# declared record over HTTP at CANARY_DECLARED_URL, which defaults to
+# SWF_MONITOR_URL + /api/declared/; with neither set, nothing reads as
+# declared.
+DECLARED_PROVIDER = config('CANARY_DECLARED_PROVIDER',
+                           default='canary.declared:http_provider')
+DECLARED_URL = config('CANARY_DECLARED_URL', default='')
+
 # PanDA accounting database DSN for the passive assessor's live source,
 # set only where that database is reachable (the platform host). Empty
 # means the assessor requires a snapshot source.

@@ -40,8 +40,14 @@ match on either.
 ## The detector
 
 Every five minutes, over a sliding window of the terminal production
-jobs (finished and failed) per queue, grouped by host. A node trips
-when all of these hold in the window:
+jobs (finished and failed) per queue, grouped by host. Jobs that ended
+under a declared downtime of their queue, or within the ten minutes
+the pilot's cached queuedata lags a rule's expiration, are set aside
+before judgment and counted on the cycle record and the page (the
+platform's declared record from CRIC, swf-epicprod
+CONTINUOUS_PRODUCTION.md, Declared downtime): a node is not a black
+hole for a downtime's deaths. A node trips when all of these hold in
+the window:
 
 - at least `min_jobs` terminal jobs on the host;
 - at least `failed_fraction` of them failed;

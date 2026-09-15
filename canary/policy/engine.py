@@ -51,9 +51,15 @@ def apply(policy, write=False):
     for sample in PassiveSample.objects.order_by('queue_id', '-window_end'):
         latest.setdefault(sample.queue_id, sample)
 
+    queues = list(Queue.objects.exclude(name__icontains='test').order_by('name'))
+    # A declared downtime is not evidence about the queue: the status
+    # does not move on a rule in force or a sample that overlaps one
+    # (canary/declared.py).
+    from ..declared import declared_info, hold_reason
+    declared = declared_info([q.name for q in queues], now)
+
     results = []
-    for queue in Queue.objects.exclude(
-            name__icontains='test').order_by('name'):
+    for queue in queues:
         sample = latest.get(queue.id)
         evidence = {
             'sample_id': str(sample.id) if sample else None,
@@ -69,9 +75,16 @@ def apply(policy, write=False):
         verdict, reason = decide(policy, evidence)
 
         pinned = bool(queue.data.get('manual_pin'))
+        held = hold_reason(declared.get(queue.name),
+                           sample.window_start if sample else None,
+                           sample.window_end if sample else None)
+        evidence['declared'] = held
         if pinned:
             new_status = queue.status
             blocked = 'status manually pinned'
+        elif held:
+            new_status = queue.status
+            blocked = held
         else:
             new_status = verdict
             blocked = ''
@@ -81,6 +94,7 @@ def apply(policy, write=False):
             'status_before': queue.status, 'status_after': new_status,
             'transition': new_status != queue.status,
             'blocked': blocked if new_status == queue.status else '',
+            'declared': held,
         }
         results.append(result)
 
