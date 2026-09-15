@@ -56,11 +56,25 @@ when all of these hold in the window:
   same few hours). This is the attribution: the failures follow the
   node, not the task and not the queue.
 
-A node under the job floor is not judged. A node whose failures are
-not fast, or whose tasks finish nowhere on the queue while other nodes
-finish other work (`tasks_fail_everywhere`), is not a black hole; the
-task detector owns that. Two conditions are the queue's, and the guard
-names them rather than exclude for them:
+A second reading, after the standard one: the **fixed-time kill**. A
+node that finished nothing in the window and whose failures all die
+at the same time (the 90th percentile of their durations within
+`fixed_time_ratio` of the 10th), from `fixed_min_jobs` failures up,
+whatever their speed, is a black hole for the work it takes: a memory
+ceiling, a slot that kills at its limit. The attribution is the same
+(a task it failed finished on another node). The case that named it:
+on 2026-09-14 the host voh5 behind BNL_OSG_PanDA_1 took seven jobs of
+one task and killed every one at 40 minutes and 2.27 GB while the task
+finished 4,996 jobs elsewhere at 2.8 GB; at 40 minutes against the
+queue's 17-minute median the deaths were not fast, and seven was under
+the floor.
+
+A node under the job floor is judged for the fixed-time kill only and
+listed only when it trips. A node whose failures are not fast and not
+at one time, or whose tasks finish nowhere on the queue while other
+nodes finish other work (`tasks_fail_everywhere`), is not a black
+hole; the task detector owns that. Two conditions are the queue's, and
+the guard names them rather than exclude for them:
 
 - no other node of the queue finished anything in the attribution
   window (`no_other_node`): node and queue are one thing there, as on
@@ -125,6 +139,8 @@ visible on the System page:
 | `node_guard.fast_fraction` | 0.5 | fast share of the node's failures |
 | `node_guard.fast_ratio` | 0.5 | fast means shorter than this share of the queue's median finished walltime |
 | `node_guard.storm_nodes` | 10 | more tripped hosts than this on one queue is the queue's event |
+| `node_guard.fixed_min_jobs` | 5 | the failure floor of the fixed-time kill |
+| `node_guard.fixed_time_ratio` | 1.2 | the failures' 90th over 10th percentile duration, at most, for a fixed-time kill |
 | `node_guard.not_nodes` | the harvester and OSG submit hosts | hosts that are not worker nodes |
 | `node_guard.expiry_h` | 24 | a black hole's life before half open |
 

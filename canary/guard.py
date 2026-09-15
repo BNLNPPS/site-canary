@@ -24,10 +24,13 @@ DEFAULTS = {
     'fast_ratio': 0.5,
     'storm_nodes': 10,
     'not_nodes': (),
+    'fixed_min_jobs': 5,
+    'fixed_time_ratio': 1.2,
 }
 
 # Reason codes, one per outcome of the decision.
 BLACK_HOLE = 'black_hole'
+FIXED_TIME = 'fixed_time'
 BELOW_FLOOR = 'below_floor'
 FAILED_FRACTION = 'failed_fraction'
 NOT_FAST = 'not_fast'
@@ -57,7 +60,8 @@ def _settings(settings):
             out[key] = settings[key]
     out['min_jobs'] = max(1, int(out['min_jobs']))
     out['storm_nodes'] = max(1, int(out['storm_nodes']))
-    for key in ('failed_fraction', 'fast_fraction', 'fast_ratio'):
+    out['fixed_min_jobs'] = max(2, int(out['fixed_min_jobs']))
+    for key in ('failed_fraction', 'fast_fraction', 'fast_ratio', 'fixed_time_ratio'):
         out[key] = float(out[key])
     out['not_nodes'] = tuple(normalize_host(h) for h in (out['not_nodes'] or ()) if h)
     return out
@@ -82,7 +86,12 @@ def decide_nodes(rows, calibration, settings=None, finished_elsewhere=None):
 
     ``nodes`` holds only the hosts at or above the job floor, each with
     its state (``tripped`` or ``clear``), reason code and evidence; hosts
-    under the floor are counted in ``hosts`` and not listed. A host named
+    under the floor are counted in ``hosts`` and not listed, except one
+    that trips the fixed-time rule: a host that finished nothing and whose
+    failures all die at the same time (the 90th over the 10th percentile
+    of their durations under ``fixed_time_ratio``), from ``fixed_min_jobs``
+    failures up, whatever their speed; the memory ceiling and the
+    fixed-time kill are black holes for the work they take. A host named
     in ``not_nodes`` (a submit host a job dies on before it lands) is
     never judged; its outcomes are reported under ``not_nodes``. When a
     queue trips more than ``storm_nodes`` hosts at once, the burst is the
@@ -133,10 +142,12 @@ def decide_nodes(rows, calibration, settings=None, finished_elsewhere=None):
         for host, entries in q['hosts'].items():
             hosts_total += 1
             q_jobs += len(entries)
-            if len(entries) < cfg['min_jobs']:
+            if len(entries) < cfg['fixed_min_jobs']:
                 continue
-            judged_total += 1
             verdict = _judge(host, entries, finished_tasks, finishing_hosts, median, fast_under, cfg)
+            if len(entries) < cfg['min_jobs'] and verdict['state'] != 'tripped':
+                continue            # under the floor: judged for the fixed-time rule only
+            judged_total += 1
             nodes[host] = verdict
             if verdict['state'] == 'tripped':
                 q_tripped.append(host)
@@ -202,10 +213,16 @@ def _judge(host, entries, finished_tasks, finishing_hosts, median, fast_under, c
                     key=lambda e: (e.get('endtime') is None, e.get('endtime')), reverse=True)
     sample_jobs = [e['pandaid'] for e in recent[:5]]
     elsewhere_hosts = {t: len(finished_tasks.get(t, set()) - {host}) for t in finished_elsewhere}
+    p10, p90 = _pct(durations, 0.1), _pct(durations, 0.9)
+    spread = round(p90 / p10, 3) if (p10 and p90) else None
+    # The fixed-time kill: nothing finished, every failure at one time.
+    fixed_time = (finished == 0 and len(failed) >= cfg['fixed_min_jobs']
+                  and len(durations) >= cfg['fixed_min_jobs']
+                  and spread is not None and spread <= cfg['fixed_time_ratio'])
     evidence = {
         'site': site, 'sites': sorted(sites),
-        'failed_duration_s': {'p10': _pct(durations, 0.1), 'median': _pct(durations, 0.5),
-                              'p90': _pct(durations, 0.9)},
+        'failed_duration_s': {'p10': p10, 'median': _pct(durations, 0.5), 'p90': p90},
+        'duration_spread': spread, 'fixed_time': fixed_time,
         'error_codes': error_codes, 'sample_jobs': sample_jobs,
         'tasks_finished_elsewhere_hosts': elsewhere_hosts,
         'jobs': n, 'failed': len(failed), 'finished': finished,
@@ -219,6 +236,16 @@ def _judge(host, entries, finished_tasks, finishing_hosts, median, fast_under, c
         'first_end': min(ends) if ends else None,
         'last_end': max(ends) if ends else None,
     }
+    # The standard reading first: mostly failed, failing fast, the tasks
+    # finishing elsewhere. Then the fixed-time kill, whatever the speed.
+    standard = (n >= cfg['min_jobs'] and failed_fraction >= cfg['failed_fraction']
+                and fast_under is not None and fast_fraction >= cfg['fast_fraction'])
+    if standard and finished_elsewhere:
+        return {'state': 'tripped', 'reason': BLACK_HOLE, 'evidence': evidence}
+    if fixed_time and finished_elsewhere:
+        return {'state': 'tripped', 'reason': FIXED_TIME, 'evidence': evidence}
+    if n < cfg['min_jobs']:
+        return {'state': 'clear', 'reason': BELOW_FLOOR, 'evidence': evidence}
     if failed_fraction < cfg['failed_fraction']:
         return {'state': 'clear', 'reason': FAILED_FRACTION, 'evidence': evidence}
     if fast_under is None:
@@ -232,4 +259,4 @@ def _judge(host, entries, finished_tasks, finishing_hosts, median, fast_under, c
         # queue, which is the task's condition.
         reason = NO_OTHER_NODE if not (finishing_hosts - {host}) else TASKS_FAIL_EVERYWHERE
         return {'state': 'clear', 'reason': reason, 'evidence': evidence}
-    return {'state': 'tripped', 'reason': BLACK_HOLE, 'evidence': evidence}
+    return {'state': 'tripped', 'reason': BLACK_HOLE, 'evidence': evidence}   # unreachable: kept for the reader

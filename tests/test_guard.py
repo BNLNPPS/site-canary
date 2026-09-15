@@ -17,10 +17,13 @@ CAL = {Q: 3600.0}          # median finished walltime: fast means under 1800 s
 
 
 def _rows(host, failed=0, finished=0, task=1, duration=60, queue=Q, end=None):
+    # failures spread from duration to 2 x duration, so they never read as
+    # a fixed-time kill unless a test builds one on purpose
     rows = []
     for i in range(failed):
+        d = None if duration is None else duration * (1 + i / max(1, failed - 1))
         rows.append({'queue': queue, 'host': host, 'jobstatus': 'failed',
-                     'jeditaskid': task, 'duration_s': duration, 'endtime': end or i})
+                     'jeditaskid': task, 'duration_s': d, 'endtime': end or i})
     for i in range(finished):
         rows.append({'queue': queue, 'host': host, 'jobstatus': 'finished',
                      'jeditaskid': task, 'duration_s': 3500, 'endtime': end or i})
@@ -198,7 +201,41 @@ def test_evidence_carries_site_durations_codes_and_samples():
     out = guard.decide_nodes(_rows('bare', failed=8, duration=60) + _rows('other', finished=1), CAL)
     e = out['queues'][Q]['nodes']['bare']['evidence']
     assert e['site'] == '' and e['error_codes'] == [] and e['sample_jobs'] == []
-    assert e['failed_duration_s']['median'] == 60.0
+    assert 60.0 <= e['failed_duration_s']['p10'] < e['failed_duration_s']['p90'] <= 120.0
+
+
+def test_fixed_time_kill_trips_under_the_floor_and_slow():
+    # voh5, 2026-09-14: seven jobs, all failed at 40 to 41 min and 2.27 GB,
+    # nothing finished, the queue's median 17 min (fast would be under 8.5).
+    rows = []
+    for i in range(7):
+        rows.append({'queue': Q, 'host': f'slot1_{i % 2 + 2}@voh5', 'jobstatus': 'failed', 'jeditaskid': 39951,
+                     'duration_s': 2400 + i * 15, 'endtime': i})
+    rows += _rows('other.node', finished=2, task=39951)
+    out = guard.decide_nodes(rows, {Q: 17 * 60.0})
+    assert out['tripped'] == [(Q, 'voh5')]
+    v = out['queues'][Q]['nodes']['voh5']
+    assert v['reason'] == guard.FIXED_TIME and v['evidence']['fixed_time']
+    # a fast fixed-time killer reads as the standard black hole first
+    fast = [dict(r, duration_s=300 + (i % 2)) for i, r in enumerate(rows[:7])] + rows[7:] + _rows('slot1_2@voh5', failed=1, duration=300, task=39951)
+    out = guard.decide_nodes(fast, {Q: 17 * 60.0})
+    assert out['queues'][Q]['nodes']['voh5']['reason'] == guard.BLACK_HOLE
+    assert v['evidence']['duration_spread'] <= 1.2 and v['evidence']['finished'] == 0
+    assert out['queues'][Q]['judged'] == 1        # listed though under the 8-job floor
+    # the same deaths spread out in time are not a fixed-time kill, and under the floor stay unlisted
+    rows2 = [dict(r, duration_s=600 + i * 600) for i, r in enumerate(rows[:7])] + rows[7:]
+    out = guard.decide_nodes(rows2, {Q: 17 * 60.0})
+    assert out['tripped'] == [] and 'voh5' not in out['queues'][Q]['nodes']
+    # one finished job on the node and it is not a fixed-time kill
+    rows3 = rows + _rows('slot1_2@voh5', finished=1, task=39951)
+    out = guard.decide_nodes(rows3, {Q: 17 * 60.0})
+    assert out['tripped'] == [] and out['queues'][Q]['nodes']['voh5']['reason'] == guard.NOT_FAST
+    # fewer than fixed_min_jobs failures: not judged at all
+    out = guard.decide_nodes(rows[:4] + rows[7:], {Q: 17 * 60.0})
+    assert 'voh5' not in out['queues'][Q]['nodes']
+    # no calibration does not stop a fixed-time kill
+    out = guard.decide_nodes(rows, {})
+    assert out['tripped'] == [(Q, 'voh5')]
 
 
 if __name__ == '__main__':
