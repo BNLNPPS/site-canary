@@ -131,9 +131,7 @@
             {% else %}<span class="text-muted">never probed</span>{% endif %}</td>
         <td>{% if r.next_due %}{{ r.next_due|fmt_dt }}{% else %}<span class="swf-no-target">due now</span>{% endif %}</td>
         <td>
-          <form method="post" action="{% url 'canary:probe_config_update' %}" class="d-flex gap-1 align-items-center mb-0">
-            {% csrf_token %}
-            <input type="hidden" name="queue" value="{{ r.queue.name }}">
+          <form class="probe-config d-flex gap-1 align-items-center mb-0" data-queue="{{ r.queue.name }}" data-action="save">
             <input type="number" step="any" min="0.1" name="interval_hours" value="{{ r.interval_hours }}"
                    class="form-control form-control-sm" style="width: 6em;" {% if not operable %}disabled{% endif %}>
             <button type="submit" class="btn btn-sm btn-primary" {% if not operable %}disabled{% endif %}>Save</button>
@@ -141,15 +139,10 @@
         </td>
         <td class="text-end"><a href="{% url 'canary:probe_runs' queue_name=r.queue.name %}">{{ r.runs_count }}</a></td>
         <td>
-          <form method="post" action="{% url 'canary:probe_run_now' %}" class="d-inline mb-0">
-            {% csrf_token %}
-            <input type="hidden" name="queue" value="{{ r.queue.name }}">
+          <form class="probe-run-now d-inline mb-0" data-queue="{{ r.queue.name }}">
             <button type="submit" class="btn btn-sm btn-success" {% if not operable %}disabled{% endif %}>Run now</button>
           </form>
-          <form method="post" action="{% url 'canary:probe_config_update' %}" class="d-inline mb-0">
-            {% csrf_token %}
-            <input type="hidden" name="queue" value="{{ r.queue.name }}">
-            <input type="hidden" name="action" value="disable">
+          <form class="probe-config d-inline mb-0" data-queue="{{ r.queue.name }}" data-action="disable">
             <button type="submit" class="btn btn-sm btn-secondary" {% if not operable %}disabled{% endif %}>Disable</button>
           </form>
         </td>
@@ -163,8 +156,7 @@
 
   <div class="card mb-2" style="max-width: 46em;">
     <div class="card-body py-2">
-      <form method="post" action="{% url 'canary:probe_config_update' %}" class="d-flex align-items-center flex-wrap gap-2 mb-0">
-        {% csrf_token %}
+      <form class="probe-config d-flex align-items-center flex-wrap gap-2 mb-0" data-action="enable">
         <strong>Enable probes for a queue</strong>
         <select name="queue" class="form-select form-select-sm" style="width: auto;" {% if not operable %}disabled{% endif %}>
           {% for q in candidates %}<option value="{{ q.name }}">{{ q.name }}</option>{% endfor %}
@@ -173,7 +165,8 @@
                class="form-control form-control-sm" style="width: 6em;" {% if not operable %}disabled{% endif %}>
         <span class="text-muted">hours</span>
         <button type="submit" class="btn btn-sm btn-primary" {% if not operable %}disabled{% endif %}>Enable</button>
-        {% if not operable %}<span style="margin-left: 1cm;">(use <a href="https://pandaserver02.sdcc.bnl.gov/swf-monitor{{ request.path_info }}" target="_blank" rel="noopener">pandaserver02</a> to operate probes)</span>{% endif %}
+        {% if not operable %}<span style="margin-left: 1cm;">(sign in to operate probes)</span>{% endif %}
+        <span class="probe-note text-danger ms-2"></span>
       </form>
     </div>
   </div>
@@ -191,8 +184,7 @@
   </p>
   <div class="card mb-2" style="max-width: 64em;">
     <div class="card-body py-2">
-      <form method="post" action="{% url 'canary:payload_canary_run_now' %}" class="d-flex align-items-center flex-wrap gap-2 mb-0">
-        {% csrf_token %}
+      <form class="probe-payload-canary d-flex align-items-center flex-wrap gap-2 mb-0">
         <strong>Run a payload canary</strong>
         <input type="text" name="task" placeholder="the PCS task's composed name" class="form-control form-control-sm" style="width: 30em;" {% if not operable %}disabled{% endif %}>
         <span class="text-muted">on</span>
@@ -200,6 +192,7 @@
           {% for q in all_queues %}<option value="{{ q.name }}">{{ q.name }}</option>{% endfor %}
         </select>
         <button type="submit" class="btn btn-sm btn-success" {% if not operable %}disabled{% endif %}>Run</button>
+        <span class="probe-note text-danger ms-2"></span>
       </form>
     </div>
   </div>
@@ -241,3 +234,62 @@
   {% endif %}
 </div>
 {% endblock %}
+
+{% if operable %}
+<script>
+// Probe controls post JSON to the probe API, which works on both faces:
+// the direct face by session, the external face by the identity the
+// proxy forwards (swf-monitor docs/EXTERNAL_ACCESS.md). A saved
+// configuration reloads the page; Run now opens the queued view, whose
+// stream reports the dispatch.
+(function () {
+  const base = '{{ request.META.SCRIPT_NAME }}';
+  const plain = window.location.pathname;
+  function post(url, body, form) {
+    const note = form.querySelector('.probe-note') || document.getElementById('probe-note');
+    return fetch(url, {method: 'POST', credentials: 'same-origin',
+                       headers: {'Content-Type': 'application/json'},
+                       body: JSON.stringify(body)})
+      .then(function (r) { return r.json().then(function (d) { return {ok: r.ok, status: r.status, data: d}; }); })
+      .then(function (res) {
+        if (!res.ok) {
+          const msg = (res.data && res.data.error) || ('request failed (' + res.status + ')');
+          if (note) note.textContent = msg; else alert(msg);
+          return null;
+        }
+        return res.data;
+      })
+      .catch(function () { if (note) note.textContent = 'request failed'; else alert('request failed'); return null; });
+  }
+  document.querySelectorAll('form.probe-config').forEach(function (form) {
+    form.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      const queueField = form.querySelector('[name=queue]');
+      const queue = form.dataset.queue || (queueField && queueField.value) || '';
+      const interval = form.querySelector('[name=interval_hours]');
+      post(base + '/canary/probes/api/config/',
+           {queue: queue, action: form.dataset.action || 'save',
+            interval_hours: interval ? interval.value : undefined}, form)
+        .then(function (d) { if (d) window.location.replace(plain); });
+    });
+  });
+  document.querySelectorAll('form.probe-payload-canary').forEach(function (form) {
+    form.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      const task = form.querySelector('[name=task]').value.trim();
+      const queue = form.querySelector('[name=queue]').value;
+      post(base + '/canary/probes/api/payload-canary/', {task: task, queue: queue}, form)
+        .then(function (d) { if (d) window.location.replace(plain); });
+    });
+  });
+  document.querySelectorAll('form.probe-run-now').forEach(function (form) {
+    form.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      const queue = form.dataset.queue;
+      post(base + '/canary/probes/api/run-now/', {queue: queue}, form)
+        .then(function (d) { if (d) window.location.replace(plain + '?queued=' + encodeURIComponent(queue)); });
+    });
+  });
+})();
+</script>
+{% endif %}

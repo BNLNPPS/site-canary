@@ -74,14 +74,157 @@ def _health_context():
 
 
 def _probe_writes_operable(request):
-    """Probe controls are pandaserver02 actions: login on the direct
-    face. Outside the hosted deployment (no monitor middleware) the
-    controls render disabled."""
+    """Probe controls are writes: a logged-in user on either face. The
+    page posts them as JSON to the probe API below, which the external
+    face relays with the user's identity (swf-monitor
+    docs/EXTERNAL_ACCESS.md, Write actions and triggers)."""
+    return bool(getattr(request, 'user', None)
+                and request.user.is_authenticated)
+
+
+def _probe_api_user(request):
+    """The acting user for a probe API write, or None. Session on the
+    direct face; X-Remote-User through the proxy (the monitor's tunnel
+    authentication sets request.user from it)."""
+    user = getattr(request, 'user', None)
+    if user is not None and user.is_authenticated:
+        return user
+    return None
+
+
+def _apply_probe_config(queue, action, interval_raw):
+    """Set the queue's probe block; returns an error message or ''."""
+    data = dict(queue.data or {})
+    block = dict(data.get('probe') or {})
+    if action == 'disable':
+        block['enabled'] = False
+    else:
+        block['enabled'] = True
+        try:
+            interval = float(interval_raw or 24)
+        except (TypeError, ValueError):
+            return 'Interval must be a number of hours.'
+        if interval <= 0:
+            return 'Interval must be positive.'
+        block['interval_hours'] = interval
+    data['probe'] = block
+    queue.data = data
+    queue.save(update_fields=['data'])
+    return ''
+
+
+def _enqueue_probe_dispatch(queue_name, created_by):
+    """One probe_dispatch message for the queue on the canary agent."""
+    import json as _json
+
+    from monitor_app.activemq_connection import ActiveMQConnectionManager
+    return ActiveMQConnectionManager().send_message(
+        '/queue/canary.ops', _json.dumps({
+            'msg_type': 'probe_dispatch',
+            'namespace': 'canary',
+            'queue': queue_name,
+            'created_by': created_by or 'web',
+        }))
+
+
+def _json_body(request):
+    import json as _json
     try:
-        from monitor_app.middleware import is_tunnel_request
-    except Exception:
-        return False
-    return request.user.is_authenticated and not is_tunnel_request(request)
+        body = _json.loads(request.body.decode() or '{}')
+    except (ValueError, UnicodeDecodeError):
+        return None
+    return body if isinstance(body, dict) else None
+
+
+def payload_canary_api(request):
+    """JSON write: {"task", "queue"}. 202 when the canary agent took
+    the message; the run is collected on the next dispatch cycle."""
+    import json as _json
+
+    from django.http import JsonResponse
+
+    if request.method != 'POST':
+        return JsonResponse({'error': 'POST only'}, status=405)
+    user = _probe_api_user(request)
+    if user is None:
+        return JsonResponse({'error': 'Login required'}, status=401)
+    body = _json_body(request) or {}
+    task = str(body.get('task') or '').strip()
+    queue_name = str(body.get('queue') or '').strip()
+    if not task or not queue_name:
+        return JsonResponse({'error': 'A payload canary needs a PCS task and a queue'},
+                            status=400)
+    try:
+        from monitor_app.activemq_connection import ActiveMQConnectionManager
+        sent = ActiveMQConnectionManager().send_message(
+            '/queue/canary.ops', _json.dumps({
+                'msg_type': 'payload_canary',
+                'namespace': 'canary',
+                'task': task,
+                'queue': queue_name,
+                'created_by': user.username,
+            }))
+    except Exception as e:  # noqa: BLE001
+        logger.error('payload canary enqueue failed for %s on %s: %s',
+                     task, queue_name, e)
+        sent = False
+    if not sent:
+        return JsonResponse({'error': 'The message bus refused the payload canary'},
+                            status=503)
+    return JsonResponse({'status': 'queued', 'task': task, 'queue': queue_name},
+                        status=202)
+
+
+def probe_config_api(request):
+    """JSON write: {"queue", "action": "save"|"enable"|"disable",
+    "interval_hours"}. 200 with the saved block; 400 on a bad value;
+    401 without a login; 404 for an unknown queue. CSRF-exempt: the
+    external proxy drops the token and authenticates by identity."""
+    from django.http import JsonResponse
+
+    if request.method != 'POST':
+        return JsonResponse({'error': 'POST only'}, status=405)
+    user = _probe_api_user(request)
+    if user is None:
+        return JsonResponse({'error': 'Login required'}, status=401)
+    body = _json_body(request)
+    if body is None:
+        return JsonResponse({'error': 'A JSON object is required'}, status=400)
+    queue = Queue.objects.filter(name=str(body.get('queue') or '').strip()).first()
+    if queue is None:
+        return JsonResponse({'error': 'Unknown queue'}, status=404)
+    error = _apply_probe_config(queue, str(body.get('action') or 'save'),
+                                body.get('interval_hours'))
+    if error:
+        return JsonResponse({'error': error}, status=400)
+    logger.info('probe config %s by %s: %s', queue.name, user.username,
+                queue.data.get('probe'))
+    return JsonResponse({'queue': queue.name, 'probe': queue.data.get('probe')})
+
+
+def probe_run_now_api(request):
+    """JSON write: {"queue"}. 202 {"status": "queued"} when the agent
+    took the message; 503 when the bus refused it."""
+    from django.http import JsonResponse
+
+    if request.method != 'POST':
+        return JsonResponse({'error': 'POST only'}, status=405)
+    user = _probe_api_user(request)
+    if user is None:
+        return JsonResponse({'error': 'Login required'}, status=401)
+    body = _json_body(request)
+    queue_name = str((body or {}).get('queue') or '').strip()
+    if not queue_name:
+        return JsonResponse({'error': 'No queue named'}, status=400)
+    try:
+        sent = _enqueue_probe_dispatch(queue_name, user.username)
+    except Exception as e:  # noqa: BLE001
+        logger.error('probe run-now enqueue failed for %s: %s', queue_name, e)
+        sent = False
+    if not sent:
+        return JsonResponse({'error': 'The message bus refused the probe trigger'},
+                            status=503)
+    return JsonResponse({'status': 'queued', 'queue': queue_name}, status=202)
 
 
 def probes_page(request):

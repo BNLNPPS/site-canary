@@ -67,7 +67,12 @@ The packaged app serves the canary page (`canary.store.views`,
 templates under `canary/`): the site health table leading, probe
 management below, at the `probes/` path; the canary root path
 redirects to it. The health table is public read-only, matching the
-System Status page; probe controls are direct-face writes. The
+System Status page. The probe controls (interval, enable, disable, run
+now, the payload canary) post JSON to `canary/probes/api/...` and work
+for a logged-in user on either face: by session on the direct face, and
+through the external proxy by the forwarded identity, under the write
+contract in swf-monitor docs/EXTERNAL_ACCESS.md (the proxy's canary
+route accepts a logged-in POST the way its PCS API route does). The
 installation adds:
 
 - `canary.store` to `INSTALLED_APPS`;
