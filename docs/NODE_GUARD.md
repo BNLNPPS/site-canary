@@ -7,6 +7,22 @@ record for the guard; the design record is [DESIGN.md](DESIGN.md)
 (Burn-through protection, Identity is horizontal) and the built spine
 is [IMPLEMENTATION.md](IMPLEMENTATION.md).
 
+## Definitions
+
+- **Cycle**: one run of the guard, every five minutes (cron `4-59/5`,
+  the production-operations agent's `node_guard_cycle` doer): it reads
+  the window, judges every node, writes the record, publishes the
+  exclusion document, and leaves one `node_guard_cycle` action and the
+  cached product the page shows. "The last cycle" is the most recent
+  run; "since 08:44 ET" means since that run.
+- **Window**: the sliding span of terminal jobs a cycle judges,
+  `window_h` hours back (4).
+- **Trip**: a cycle's verdict that a node is a black hole.
+- **Black hole**: the record's status for a tripped node, latched
+  for `expiry_h` (24 h), then **half open**: one job may land.
+- **Exclusion document**: the JSON a cycle publishes (Actuation): the
+  black holes, the mode, and a validity of twenty minutes.
+
 ## The problem it answers
 
 A black hole node fails every job it takes within minutes, and a batch
