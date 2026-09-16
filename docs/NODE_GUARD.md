@@ -149,7 +149,7 @@ visible on the System page:
 | Key | Default | Meaning |
 |---|---|---|
 | `node_guard.enabled` | false | the global switch |
-| `node_guard.mode` | shadow | `shadow`: decide, record and announce what the guard would do, act on nothing; `live`: exclude |
+| `node_guard.mode` | shadow | `shadow`: decide, record, announce and publish what the guard would do, the readers act on nothing; `live`: the published document excludes |
 | `node_guard.queues` | [] | the queues judged; empty means every queue with production jobs in the window |
 | `node_guard.window_h` | 4 | the judging window |
 | `node_guard.attribution_h` | 24 | the look back for the tasks' finishes on other nodes |
@@ -196,28 +196,47 @@ In shadow mode a tripped node reads `would_exclude`; in live mode
 
 ## Actuation
 
-Defensive and reversible, by what the production system controls:
+Defensive and reversible, by what the production system controls.
+Everything acts through one document, the published exclusion: every
+cycle the guard is on, the record's black holes go out as JSON
+(`queue`, `host`, `site`, `fingerprint` when known, `since`, `until`,
+`reason`, `trips`) with the cycle's `mode` and a `valid_until` twenty
+minutes on, stored as the cached product `node_guard_exclusion`, served
+anonymously at `GET /api/node-guard/exclusion/` on the monitor, and put
+on the devcloud bucket's public pilot prefix,
+`https://epic-devcloud-stageout.s3.us-east-1.amazonaws.com/pilot/node-exclusion.json`
+(swf-epicprod docs/DEVCLOUD_STAGEOUT.md § 4), with the worker profile
+in the operating account's AWS credentials, since every worker can
+fetch there and the monitor's faces are inside the perimeter or behind
+a login. A reader acts only on a live document inside its validity, so
+a publisher that stops leaves no exclusion standing within twenty
+minutes; a shadow document is read and reported and never acted on,
+which is how the chain is verified before live mode. A failed
+publication is the cycle's error on the page and the cycle record.
+Live since 2026-09-16.
 
-- Where the production system owns the pilot launch (the Perlmutter
-  launcher, the reference queue), the wrapper reads the published
-  exclusion before the pilot fetches a job and exits on an excluded
-  node, so no job is touched; the Perlmutter batch submission also
-  excludes the node by name.
-- On the OSG pools the lever that keeps pilots off a node is the
-  Requirements clause of the submit description on the harvester
-  submit host (swf-epicprod docs/OSG_SUBMISSION.md, Excluding what
-  delivers nothing). The guard renders the clause from the record;
-  applying it is an operation on that host, by PanDA operations.
-- Everywhere, the payload's landing check declines in seconds on an
-  excluded node with its own exit code (swf-epicprod
-  docs/EPICPROD_PAYLOAD.md, the landing check). A decline costs the
-  job one attempt, so this bounds the damage; it is not the guard.
+The readers, in the order a job meets them:
 
-The published exclusion is a JSON list of the current black holes
-(queue, host, fingerprint when known, since, until, evidence), served
-from the platform and mirrored to the public pilot prefix of the
-devcloud bucket, where the wrapper and the landing check already
-fetch.
+- The wrapper, where the production system owns the pilot launch (the
+  Perlmutter launcher, the npps0 pass script): reads the document
+  before the pilot fetches a job and exits on an excluded node, so no
+  job is touched. The OSG pilot wrapper on the harvester submit host is
+  the same check, applied there as a separate operation with its dated
+  backup (swf-epicprod docs/OSG_SUBMISSION.md); until it is, the OSG
+  pool relies on the landing check.
+- The payload's landing check, everywhere: declines in seconds on an
+  excluded node with exit 80, the node, queue, reason and trip time in
+  the stage log and the report (swf-epicprod docs/EPICPROD_PAYLOAD.md,
+  evolution item 10). A decline costs the job one attempt, and the
+  guard's expiry bounds how many.
+- The Requirements clause of the OSG submit description (OSG_SUBMISSION
+  .md, Excluding what delivers nothing) stays the operator's lever for
+  a standing ban; the guard does not write it.
+
+A host is matched by its full name, or by its bare name when the record
+holds a bare name (the pool advertises both forms), and by queue when
+the reader knows its queue; a bare-name collision across sites costs a
+healthy node one declined attempt per job until the exclusion expires.
 
 ## Readers and notices
 
@@ -248,5 +267,7 @@ fetch.
 4. The `NodeState` model and its migration in the canary store; latch,
    expiry and half open; the manual clear and pin (done 2026-09-14,
    canary migration 0008). The queues page section.
-5. The published exclusion; the wrapper check and the landing check;
-   the rendered OSG clause and its handoff; live mode.
+5. The published exclusion, the landing check, the wrapper check on
+   the Perlmutter launcher and npps0, and live mode (done 2026-09-16);
+   the OSG pilot wrapper's check, a separate operation on the submit
+   host (open).
