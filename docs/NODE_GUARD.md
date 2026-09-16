@@ -212,12 +212,16 @@ fetch.
   else the site its domain names), state, reason, first and last job,
   and its evidence under a triangle; the queues' calibration and any
   storm; the switches, the cycle's time and errors. Reads the cached
-  product, computes nothing.
+  product, computes nothing. The same reads as JSON for scripts at
+  `panda/node-guard/json/` (the cycle's tripped nodes and the record's
+  rows that are not clear), served anonymously on the monitor's http
+  face.
 - The ePIC queues page: a node section per queue with the guard's
   current verdicts.
 - Every change of a node's verdict is an action (`node_guard_decision`)
   on the action stream, one `node_guard_cycle` per cycle; a trip is a
-  notice on the production notice stream and an alarm.
+  notice on the production notice stream (`nodeguard.trip` from
+  prod-notify, once per node, from the JSON above) and an alarm.
 
 ## Build order
 
