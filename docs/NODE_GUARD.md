@@ -90,6 +90,19 @@ the guard names them rather than exclude for them:
   (`queue_event`): a storm, the queue's condition, handed to the queue
   breaker; the hosts are cleared with that reason and the queue reads
   `queue_event` with the count.
+- a burst: more than `storm_nodes` distinct hosts of one queue failing
+  inside one `storm_minutes` interval, whatever each host's count. A
+  tripped host whose failures fall in the bursts (`failed_fraction` of
+  them) is cleared with `queue_event`, its evidence marked `burst`;
+  the queue reads `queue_event` and lists its bursts with their host
+  counts. A black hole that kills for hours keeps tripping through a
+  burst it did not cause, since most of its deaths lie outside it.
+  The case that named it: on 2026-09-15 the input file of task 39973
+  was refused by the JLab door for four minutes and 443 jobs died on
+  412 hosts of BNL_OSG_PanDA_1, one or two each; the three Fir hosts
+  with enough slots to pass the fixed-time floor tripped as black
+  holes for the queue's event (segfault finding f-13). Under the
+  tripped-host cap alone that storm read as three nodes.
 
 A host named in `not_nodes` is a submit host that a job dies on before
 it lands (the harvester and the OSG submit host appear as the
@@ -144,7 +157,8 @@ visible on the System page:
 | `node_guard.failed_fraction` | 0.8 | failed share of the node's terminal jobs |
 | `node_guard.fast_fraction` | 0.5 | fast share of the node's failures |
 | `node_guard.fast_ratio` | 0.5 | fast means shorter than this share of the queue's median finished walltime |
-| `node_guard.storm_nodes` | 10 | more tripped hosts than this on one queue is the queue's event |
+| `node_guard.storm_nodes` | 10 | more tripped hosts than this on one queue, or more hosts than this failing inside one `storm_minutes` interval, is the queue's event |
+| `node_guard.storm_minutes` | 5 | the interval of the burst reading |
 | `node_guard.fixed_min_jobs` | 5 | the failure floor of the fixed-time kill |
 | `node_guard.fixed_time_ratio` | 1.2 | the failures' 90th over 10th percentile duration, at most, for a fixed-time kill |
 | `node_guard.not_nodes` | the harvester and OSG submit hosts | hosts that are not worker nodes |

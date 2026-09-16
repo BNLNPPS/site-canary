@@ -238,6 +238,55 @@ def test_fixed_time_kill_trips_under_the_floor_and_slow():
     assert out['tripped'] == [(Q, 'voh5')]
 
 
+def test_burst_is_the_queues_event_not_the_big_nodes():
+    # task 39973, 2026-09-15: 443 deaths on 412 hosts of BNL_OSG_PanDA_1
+    # inside four minutes (the input file gone from the door); most hosts
+    # lost one job, three Fir hosts with many slots lost eight each at
+    # the same moment and had finished nothing in the window, and the
+    # guard tripped those three as fixed-time kills.
+    t0 = 1_800_000_000.0                      # a real axis: seconds
+    rows = []
+    for i in range(30):                       # the fleet: one death each, same minutes
+        rows.append({'queue': Q, 'host': f'fc{i:05d}', 'jobstatus': 'failed', 'jeditaskid': 39973,
+                     'duration_s': 400 + i, 'endtime': t0 + 10 * i})
+    for big in ('fc30560', 'fc30607', 'fc30651'):
+        for j in range(8):                    # a big node: eight deaths at the same moment
+            rows.append({'queue': Q, 'host': f'slot1_{j}@{big}', 'jobstatus': 'failed',
+                         'jeditaskid': 39973, 'duration_s': 420 + j, 'endtime': t0 + 60 + j})
+    rows += _rows('other.node', finished=5, task=39973, end=t0 - 3600)
+    out = guard.decide_nodes(rows, {Q: 17 * 60.0})
+    q = out['queues'][Q]
+    assert out['tripped'] == [] and q['queue_event'] and q['tripped'] == 0
+    assert q['bursts'] and q['bursts'][0]['hosts'] == 33 and q['storm_hosts'] == 33
+    for big in ('fc30560', 'fc30607', 'fc30651'):
+        v = q['nodes'][big]
+        assert v['state'] == 'clear' and v['reason'] == guard.QUEUE_EVENT and v['evidence']['burst']
+    # the same three nodes dying alone, no fleet-wide burst: fixed-time kills, as before
+    alone = [r for r in rows if not r['host'].startswith('fc0')]
+    out = guard.decide_nodes(alone, {Q: 17 * 60.0})
+    assert sorted(h for _, h in out['tripped']) == ['fc30560', 'fc30607', 'fc30651']
+    assert not out['queues'][Q]['queue_event'] and out['queues'][Q]['bursts'] == []
+    # a black hole whose deaths run for hours trips through a burst it did not cause
+    hole = []
+    for j in range(12):
+        hole.append({'queue': Q, 'host': f'slot1_{j % 4}@warlock12', 'jobstatus': 'failed',
+                     'jeditaskid': 39973, 'duration_s': 90 + j, 'endtime': t0 - 3 * 3600 + j * 900})
+    out = guard.decide_nodes(rows + hole, {Q: 17 * 60.0})
+    assert out['tripped'] == [(Q, 'warlock12')] and out['queues'][Q]['queue_event']
+    assert out['queues'][Q]['nodes']['warlock12']['reason'] == guard.BLACK_HOLE
+    # under the cap it is nobody's burst: ten hosts do not make a queue event
+    few = [r for r in rows if not r['host'].startswith('fc0') or int(r['host'][2:]) < 10]
+    out = guard.decide_nodes(few, {Q: 17 * 60.0}, {'storm_nodes': 13})
+    assert not out['queues'][Q]['queue_event'] and len(out['tripped']) == 3
+    # endtimes as ISO strings and as datetimes bucket the same way
+    from datetime import datetime, timezone
+    iso = [dict(r, endtime=datetime.fromtimestamp(r['endtime'], timezone.utc).isoformat()) for r in rows]
+    dts = [dict(r, endtime=datetime.fromtimestamp(r['endtime'], timezone.utc)) for r in rows]
+    assert guard.decide_nodes(iso, {Q: 17 * 60.0})['queues'][Q]['storm_hosts'] == 33
+    assert guard.decide_nodes(dts, {Q: 17 * 60.0})['queues'][Q]['storm_hosts'] == 33
+    assert guard._seconds('not a time') is None and guard._seconds(None) is None
+
+
 if __name__ == '__main__':
     names = [n for n in dir() if n.startswith('test_')]
     failed = 0

@@ -23,6 +23,7 @@ DEFAULTS = {
     'fast_fraction': 0.5,
     'fast_ratio': 0.5,
     'storm_nodes': 10,
+    'storm_minutes': 5,
     'not_nodes': (),
     'fixed_min_jobs': 5,
     'fixed_time_ratio': 1.2,
@@ -53,6 +54,66 @@ def normalize_host(value):
     return text
 
 
+def _seconds(value):
+    """An endtime as seconds on one axis, for the burst buckets: a
+    datetime by its timestamp, an ISO string parsed, a number as it is;
+    None when it is none of these."""
+    if value is None:
+        return None
+    if hasattr(value, 'timestamp'):
+        try:
+            return float(value.timestamp())
+        except (TypeError, ValueError, OverflowError):
+            return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    try:
+        from datetime import datetime, timezone
+        parsed = datetime.fromisoformat(str(value).replace('Z', '+00:00'))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return float(parsed.timestamp())
+    except (TypeError, ValueError):
+        return None
+
+
+def _bursts(hosts, cfg):
+    """The queue's synchronous failures: the failures of every host
+    bucketed by ``storm_minutes``; a bucket in which more than
+    ``storm_nodes`` distinct hosts failed is a burst, the queue's event.
+    Returns {bucket: hosts failed in it} for the bursts only."""
+    width = cfg['storm_minutes'] * 60.0
+    buckets = {}
+    for host, entries in hosts.items():
+        for e in entries:
+            if e['status'] != 'failed':
+                continue
+            t = _seconds(e.get('endtime'))
+            if t is None:
+                continue
+            buckets.setdefault(int(t // width), set()).add(host)
+    return {b: len(h) for b, h in buckets.items() if len(h) > cfg['storm_nodes']}
+
+
+def _in_bursts(entries, bursts, cfg):
+    """Whether a node's failures are the queue's burst: at least
+    ``failed_fraction`` of its timed failures fall in burst buckets."""
+    if not bursts:
+        return False
+    width = cfg['storm_minutes'] * 60.0
+    timed = inside = 0
+    for e in entries:
+        if e['status'] != 'failed':
+            continue
+        t = _seconds(e.get('endtime'))
+        if t is None:
+            continue
+        timed += 1
+        if int(t // width) in bursts:
+            inside += 1
+    return timed > 0 and inside / timed >= cfg['failed_fraction']
+
+
 def _settings(settings):
     out = dict(DEFAULTS)
     for key in DEFAULTS:
@@ -60,6 +121,7 @@ def _settings(settings):
             out[key] = settings[key]
     out['min_jobs'] = max(1, int(out['min_jobs']))
     out['storm_nodes'] = max(1, int(out['storm_nodes']))
+    out['storm_minutes'] = max(1, int(out['storm_minutes']))
     out['fixed_min_jobs'] = max(2, int(out['fixed_min_jobs']))
     for key in ('failed_fraction', 'fast_fraction', 'fast_ratio', 'fixed_time_ratio'):
         out[key] = float(out[key])
@@ -93,10 +155,16 @@ def decide_nodes(rows, calibration, settings=None, finished_elsewhere=None):
     failures up, whatever their speed; the memory ceiling and the
     fixed-time kill are black holes for the work they take. A host named
     in ``not_nodes`` (a submit host a job dies on before it lands) is
-    never judged; its outcomes are reported under ``not_nodes``. When a
-    queue trips more than ``storm_nodes`` hosts at once, the burst is the
-    queue's condition, not the nodes': the queue reads ``queue_event``
-    and every one of those hosts is cleared with that reason.
+    never judged; its outcomes are reported under ``not_nodes``. Two
+    readings make a queue's event, ``queue_event``, rather than a node's:
+    more than ``storm_nodes`` hosts tripping at once, and a burst, more
+    than ``storm_nodes`` distinct hosts failing inside one
+    ``storm_minutes`` interval, whatever their per-host counts (task
+    39973, 2026-09-15: 443 deaths on 412 hosts in four minutes tripped
+    the three hosts big enough to pass the floor). A tripped host whose
+    failures fall in the bursts (``failed_fraction`` of them) is cleared
+    with that reason; the queue reads ``queue_event`` with the host
+    count and lists its bursts.
     """
     cfg = _settings(settings)
     calibration = calibration or {}
@@ -139,6 +207,7 @@ def decide_nodes(rows, calibration, settings=None, finished_elsewhere=None):
         nodes = {}
         q_tripped = []
         q_jobs = sum(v['failed'] + v['finished'] for v in q['not_nodes'].values())
+        bursts = _bursts(q['hosts'], cfg)
         for host, entries in q['hosts'].items():
             hosts_total += 1
             q_jobs += len(entries)
@@ -149,20 +218,31 @@ def decide_nodes(rows, calibration, settings=None, finished_elsewhere=None):
                 continue            # under the floor: judged for the fixed-time rule only
             judged_total += 1
             nodes[host] = verdict
+            if verdict['state'] == 'tripped' and _in_bursts(entries, bursts, cfg):
+                # its deaths are the queue's burst, not its own
+                verdict['state'] = 'clear'
+                verdict['reason'] = QUEUE_EVENT
+                verdict['evidence']['burst'] = True
+                continue
             if verdict['state'] == 'tripped':
                 q_tripped.append(host)
-        queue_event = len(q_tripped) > cfg['storm_nodes']
-        if queue_event:
+        storm = len(q_tripped) > cfg['storm_nodes']
+        if storm:
             for host in q_tripped:
                 nodes[host]['state'] = 'clear'
                 nodes[host]['reason'] = QUEUE_EVENT
         else:
             tripped.extend((queue, host) for host in q_tripped)
+        queue_event = storm or bool(bursts)
+        width = cfg['storm_minutes'] * 60
         out_queues[queue] = {
             'median_finished_s': median, 'fast_under_s': fast_under,
             'jobs': q_jobs, 'hosts': len(q['hosts']), 'judged': len(nodes),
-            'tripped': 0 if queue_event else len(q_tripped),
-            'queue_event': queue_event, 'storm_hosts': len(q_tripped) if queue_event else 0,
+            'tripped': 0 if storm else len(q_tripped),
+            'queue_event': queue_event,
+            'storm_hosts': max([len(q_tripped) if storm else 0] + list(bursts.values())),
+            'bursts': [{'from_s': b * width, 'to_s': (b + 1) * width, 'hosts': n}
+                       for b, n in sorted(bursts.items())],
             'not_nodes': q['not_nodes'], 'nodes': nodes,
         }
     return {'queues': out_queues, 'tripped': tripped, 'judged': judged_total,
