@@ -21,6 +21,11 @@ def probe_config(queue):
         'enabled': bool(block.get('enabled', False)),
         'interval_hours': float(block.get('interval_hours',
                                           DEFAULT_INTERVAL_HOURS)),
+        # A PCS task name makes the queue's scheduled probe a payload
+        # canary of that task (IMPLEMENTATION.md, Payload canaries)
+        # instead of a landing probe; its payload runs then anchor the
+        # schedule and speak for its probe health.
+        'payload_task': str(block.get('payload_task') or '').strip(),
     }
 
 
@@ -31,23 +36,27 @@ def configured_queues():
             if probe_config(q)['enabled']]
 
 
-def _landing_runs(queue):
-    """The queue's landing-probe runs. Payload canaries share the table
-    (``data.kind`` = payload) but neither anchor the probe schedule nor
-    speak for site health."""
+def probe_runs(queue, config=None):
+    """The runs that are the queue's probe: its landing-probe runs, or,
+    for a queue whose probe is a payload canary, its payload runs. The
+    two kinds share the table (``data.kind`` = payload); the other kind
+    neither anchors the queue's schedule nor speaks for its health."""
+    config = config or probe_config(queue)
+    if config['payload_task']:
+        return queue.probe_runs.filter(data__contains={'kind': 'payload'})
     return queue.probe_runs.exclude(data__contains={'kind': 'payload'})
 
 
 def last_run(queue):
-    """The queue's most recent landing-probe run, else None."""
-    return _landing_runs(queue).order_by('-submitted_at').first()
+    """The queue's most recent probe run, else None."""
+    return probe_runs(queue).order_by('-submitted_at').first()
 
 
 def last_submitted_run(queue):
-    """The most recent landing-probe run that actually reached PanDA —
-    the schedule anchor. A failed submission never consumes the
-    interval; it retries on the next tick."""
-    return (_landing_runs(queue).filter(jeditaskid__isnull=False)
+    """The most recent probe run that actually reached PanDA — the
+    schedule anchor. A failed submission never consumes the interval; it
+    retries on the next tick."""
+    return (probe_runs(queue).filter(jeditaskid__isnull=False)
             .order_by('-submitted_at').first())
 
 
@@ -133,6 +142,14 @@ def dispatch(now, queue_names=None, force=False, submit_cmd=None):
     if container:
         env['CANARY_CONTAINER_IMAGE'] = container
     for queue in targets:
+        payload_task = probe_config(queue)['payload_task']
+        if payload_task:
+            # The queue's probe is a payload canary of the named task.
+            results.append(dispatch_payload_canary(
+                now, payload_task, queue.name,
+                trigger=(ProbeRun.Trigger.MANUAL if force
+                         else ProbeRun.Trigger.AUTO)))
+            continue
         run_row = ProbeRun.objects.create(
             queue=queue, submitted_at=now,
             trigger=(ProbeRun.Trigger.MANUAL if force
@@ -183,7 +200,7 @@ CANARY_DATASET_ROOT = 'TEST/canary'
 def dispatch_payload_canary(now, task_name, queue_name, submit_script=None,
                             row=None, row_text='', mem_limit_mb=None,
                             signature='', pandaid=None, container='',
-                            request_id=''):
+                            request_id='', trigger=None):
     """Submit one payload canary through the production submit doer in
     its canary mode and record it as a ProbeRun of kind payload. Every
     failure is recorded on the run and returned, never raised.
@@ -228,8 +245,8 @@ def dispatch_payload_canary(now, task_name, queue_name, submit_script=None,
     if container:
         data['container'] = container
     run_row = ProbeRun.objects.create(
-        queue=queue, submitted_at=now, trigger=ProbeRun.Trigger.MANUAL,
-        data=data)
+        queue=queue, submitted_at=now,
+        trigger=trigger or ProbeRun.Trigger.MANUAL, data=data)
     cmd = [sys.executable, submit_script, '--task-name', task_name,
            '--canary-stamp', stamp, '--canary-queue', queue.name]
     if row_text:

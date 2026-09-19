@@ -316,6 +316,17 @@ first failure as its reason otherwise, and failing when the job failed.
 The checks, the DIDs, the payload version and the registration metadata
 stay on the run.
 
+A queue's scheduled probe can be a payload canary instead of a landing
+probe: the probe block names the PCS task (`payload_task`), set from
+the probes page beside the interval. The dispatch then submits a
+payload canary of that task on the interval, its payload runs anchor
+the queue's schedule and its last verdict is the queue's probe health;
+the queue's landing runs, if any, are history. The first such queue is
+`NERSC_Perlmutter_epic_es` every twelve hours (swf-epicprod
+docs/NERSC_PERLMUTTER.md, Payload canaries on the test queue): the
+launcher's standing proof and the carrier of the Perlmutter pool
+sample.
+
 ## Node guard
 
 `canary/guard.py` is the guard's decision (docs/NODE_GUARD.md, The

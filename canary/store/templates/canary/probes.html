@@ -121,7 +121,8 @@
     {% for r in rows %}
       <tr>
         <td><a href="{% url 'canary:probe_runs' queue_name=r.queue.name %}"
-               title="Run history of this queue's probe">{{ r.queue.name }}</a></td>
+               title="Run history of this queue's probe">{{ r.queue.name }}</a>{% if r.payload_task %}
+            <div class="text-muted small" title="This queue's scheduled probe is a payload canary of this PCS task, not a landing probe">payload canary of {{ r.payload_task }}</div>{% endif %}</td>
         <td class="{{ r.health|state_class }}" title="{{ r.health_reason }}">{{ r.health }}</td>
         <td>{% if r.last %}
             {% if r.last_phase %}<span class="{{ r.last_phase_state|state_class }}">{{ r.last_phase }}</span>{% else %}<span class="{{ r.last.status|state_class }}">{{ r.last.status }}</span>{% endif %}
@@ -134,6 +135,9 @@
           <form class="probe-config d-flex gap-1 align-items-center mb-0" data-queue="{{ r.queue.name }}" data-action="save">
             <input type="number" step="any" min="0.1" name="interval_hours" value="{{ r.interval_hours }}"
                    class="form-control form-control-sm" style="width: 6em;" {% if not operable %}disabled{% endif %}>
+            <input type="text" name="payload_task" value="{{ r.payload_task }}" placeholder="PCS task for a payload canary"
+                   title="Empty: a landing probe. A PCS task's composed name: the scheduled probe is a payload canary of that task."
+                   class="form-control form-control-sm" style="width: 22em;" {% if not operable %}disabled{% endif %}>
             <button type="submit" class="btn btn-sm btn-primary" {% if not operable %}disabled{% endif %}>Save</button>
           </form>
         </td>
@@ -164,6 +168,9 @@
         <input type="number" step="any" min="0.1" name="interval_hours" value="24"
                class="form-control form-control-sm" style="width: 6em;" {% if not operable %}disabled{% endif %}>
         <span class="text-muted">hours</span>
+        <input type="text" name="payload_task" value="" placeholder="PCS task for a payload canary (empty: landing probe)"
+               title="Empty: a landing probe. A PCS task's composed name: the scheduled probe is a payload canary of that task."
+               class="form-control form-control-sm" style="width: 26em;" {% if not operable %}disabled{% endif %}>
         <button type="submit" class="btn btn-sm btn-primary" {% if not operable %}disabled{% endif %}>Enable</button>
         {% if not operable %}<span style="margin-left: 1cm;">(sign in to operate probes)</span>{% endif %}
         <span class="probe-note text-danger ms-2"></span>
@@ -271,9 +278,11 @@
       const queueField = form.querySelector('[name=queue]');
       const queue = form.dataset.queue || (queueField && queueField.value) || '';
       const interval = form.querySelector('[name=interval_hours]');
+      const payloadTask = form.querySelector('[name=payload_task]');
       post(urls.config,
            {queue: queue, action: form.dataset.action || 'save',
-            interval_hours: interval ? interval.value : undefined}, form)
+            interval_hours: interval ? interval.value : undefined,
+            payload_task: payloadTask ? payloadTask.value.trim() : undefined}, form)
         .then(function (d) { if (d) window.location.replace(plain); });
     });
   });

@@ -92,14 +92,18 @@ def _probe_api_user(request):
     return None
 
 
-def _apply_probe_config(queue, action, interval_raw):
-    """Set the queue's probe block; returns an error message or ''."""
+def _apply_probe_config(queue, action, interval_raw, payload_task=None):
+    """Set the queue's probe block; returns an error message or ''.
+    ``payload_task`` names the PCS task whose payload canary is this
+    queue's scheduled probe (empty: a landing probe; None: unchanged)."""
     data = dict(queue.data or {})
     block = dict(data.get('probe') or {})
     if action == 'disable':
         block['enabled'] = False
     else:
         block['enabled'] = True
+        if payload_task is not None:
+            block['payload_task'] = str(payload_task or '').strip()
         try:
             interval = float(interval_raw or 24)
         except (TypeError, ValueError):
@@ -194,7 +198,8 @@ def probe_config_api(request):
     if queue is None:
         return JsonResponse({'error': 'Unknown queue'}, status=404)
     error = _apply_probe_config(queue, str(body.get('action') or 'save'),
-                                body.get('interval_hours'))
+                                body.get('interval_hours'),
+                                body.get('payload_task'))
     if error:
         return JsonResponse({'error': error}, status=400)
     logger.info('probe config %s by %s: %s', queue.name, user.username,
@@ -237,15 +242,15 @@ def probes_page(request):
     for queue in probe_mod.configured_queues():
         config = probe_mod.probe_config(queue)
         last = probe_mod.last_run(queue)
-        completed = (queue.probe_runs
+        completed = (probe_mod.probe_runs(queue, config)
                      .exclude(status=ProbeRun.Status.SUBMITTED)
-                     .exclude(data__contains={'kind': 'payload'})
                      .order_by('-submitted_at').first())
         health, health_reason = _probe_health(completed)
         phase, phase_state = _run_phase(last)
         rows.append({
             'queue': queue,
             'interval_hours': config['interval_hours'],
+            'payload_task': config['payload_task'],
             'last': last,
             'last_phase': phase,
             'last_phase_state': phase_state,
@@ -287,6 +292,11 @@ def _probe_health(run):
     if run is None:
         return 'unknown', 'no completed probe'
     data = run.data or {}
+    if data.get('kind') == 'payload' and run.status == ProbeRun.Status.COLLECTED:
+        # A payload canary's health is its verdict (Payload canaries).
+        verdict = data.get('verdict') or {}
+        return (verdict.get('state') or 'unknown',
+                verdict.get('reason') or 'collected without a verdict')
     if run.status == ProbeRun.Status.COLLECTED:
         kit = data.get('kit_exit_code')
         if kit in (0, '0'):
@@ -501,6 +511,8 @@ def probe_config_update(request):
             messages.error(request, 'Interval must be positive.')
             return redirect(url)
         block['interval_hours'] = interval
+        if 'payload_task' in request.POST:
+            block['payload_task'] = (request.POST.get('payload_task') or '').strip()
     data['probe'] = block
     queue.data = data
     queue.save(update_fields=['data'])
