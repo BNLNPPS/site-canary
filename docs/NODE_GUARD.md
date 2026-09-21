@@ -71,12 +71,24 @@ the window:
   `fast_ratio` of the queue's median finished walltime (the census's
   calibration), so a node that runs jobs to completion and then loses
   them is a different condition;
-- the same tasks finish elsewhere on the queue: at least one finished
-  job of a task the host failed, on another host of the queue, over
-  the attribution window (`attribution_h`, longer than the judging
-  window, because a queue's other nodes need not finish inside the
-  same few hours). This is the attribution: the failures follow the
-  node, not the task and not the queue.
+- the same tasks finish elsewhere on the queue, contemporaneously: at
+  least one finished job of a task the host failed, on another host of
+  the queue, at or after the host's first failure in the window. The
+  finishes are read over the attribution window (`attribution_h`), so
+  a task's last finish on each host is known; a finish from before the
+  node started failing says nothing about the node. This is the
+  attribution: the failures follow the node, not the task and not the
+  queue. The case that fixed the timing: on 2026-09-21, with the
+  BNL-XRD door dead since the evening before, every Perlmutter node
+  failed its jobs at registration in turn, and each tripped on finishes
+  of the same tasks from before the door died; 29 shadow trips in a
+  day on a queue 92 percent failed.
+- the queue works around it: the other hosts' terminal jobs in the
+  window, the queue's bursts set aside, are under `failed_fraction`
+  failed (over at least `min_jobs` of them). A node that would trip in
+  a queue failing around it is cleared with `queue_failing`, the
+  queue's condition, and the queue reads `queue_failing` with its
+  failed fraction; the queue's own instruments own it.
 
 A second reading, after the standard one: the **fixed-time kill**. A
 node that finished nothing in the window and whose failures all die
@@ -127,7 +139,11 @@ outcomes are reported beside the queue.
 
 The decision is a pure function over rows (`canary.guard.decide_nodes`)
 with the thresholds passed in, so the same evidence gives the same
-verdict anywhere and the thresholds are tested as data.
+verdict anywhere and the thresholds are tested as data. The readings
+are taken in this order for a host that would trip: its deaths in the
+queue's bursts (`queue_event`), the queue failing around it
+(`queue_failing`), then the count of tripped hosts against
+`storm_nodes` (`queue_event`).
 
 ## The record
 
@@ -168,7 +184,7 @@ visible on the System page:
 | `node_guard.mode` | shadow | `shadow`: decide, record, announce and publish what the guard would do, the readers act on nothing; `live`: the published document excludes |
 | `node_guard.queues` | [] | the queues judged; empty means every queue with production jobs in the window |
 | `node_guard.window_h` | 4 | the judging window |
-| `node_guard.attribution_h` | 24 | the look back for the tasks' finishes on other nodes |
+| `node_guard.attribution_h` | 24 | the look back over which the tasks' finishes on other nodes are read; only finishes at or after the node's first failure attribute |
 | `node_guard.min_jobs` | 8 | the job floor per node |
 | `node_guard.failed_fraction` | 0.8 | failed share of the node's terminal jobs |
 | `node_guard.fast_fraction` | 0.5 | fast share of the node's failures |

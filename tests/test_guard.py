@@ -63,7 +63,7 @@ def test_below_floor_not_judged():
 
 def test_task_failing_everywhere_is_not_a_node():
     rows = _rows('a.site.edu', failed=12, duration=60) + _rows('b.site.edu', failed=12, duration=60)
-    rows += _rows('c.site.edu', finished=2, task=2)     # the queue's other nodes finish other tasks
+    rows += _rows('c.site.edu', finished=40, task=2)    # the queue's other nodes finish other tasks
     out = guard.decide_nodes(rows, CAL)
     assert out['tripped'] == []
     for host in ('a.site.edu', 'b.site.edu'):
@@ -138,19 +138,66 @@ def test_hosts_are_distinct_per_queue():
     assert out['queues'][Q]['nodes']['n358']['state'] == 'clear'
 
 
-def test_attribution_looks_back_beyond_the_window():
-    # f-6: the node's tasks finished on other nodes earlier in the day,
-    # none inside the window.
-    rows = _rows('fxz4', failed=12, duration=180)
+def test_attribution_is_contemporaneous():
+    # The look back supplies the finishes; only those at or after the
+    # node's first failure attribute. fxz4 fails from t=1000 on.
+    rows = _rows('fxz4', failed=12, duration=180, end=None)
+    for i, r in enumerate(rows):
+        r['endtime'] = 1000 + i
     out = guard.decide_nodes(rows, CAL)
     assert out['queues'][Q]['nodes']['fxz4']['reason'] == guard.NO_OTHER_NODE
-    out = guard.decide_nodes(rows, CAL, finished_elsewhere={Q: {2: {'other.node'}}})
+    # another task finishing elsewhere is not this node's task
+    out = guard.decide_nodes(rows, CAL, finished_elsewhere={Q: {2: {'other.node': 2000}}})
     assert out['queues'][Q]['nodes']['fxz4']['reason'] == guard.TASKS_FAIL_EVERYWHERE
+    # the task finished elsewhere after the node started failing: a trip
+    out = guard.decide_nodes(rows, CAL, finished_elsewhere={Q: {1: {'other.node': 1500}}})
+    assert out['tripped'] == [(Q, 'fxz4')]
+    assert out['queues'][Q]['nodes']['fxz4']['evidence']['first_failure_s'] == 1000
+    # the task finished elsewhere only before the node's first failure:
+    # yesterday's finishes say nothing about today (the dead door)
+    out = guard.decide_nodes(rows, CAL, finished_elsewhere={Q: {1: {'other.node': 900}}})
+    assert out['tripped'] == []
+    assert out['queues'][Q]['nodes']['fxz4']['reason'] == guard.TASKS_FAIL_EVERYWHERE
+    # a finish of unknown time counts (a bare set of hosts too)
+    out = guard.decide_nodes(rows, CAL, finished_elsewhere={Q: {1: {'other.node': None}}})
+    assert out['tripped'] == [(Q, 'fxz4')]
     out = guard.decide_nodes(rows, CAL, finished_elsewhere={Q: {1: {'other.node'}}})
     assert out['tripped'] == [(Q, 'fxz4')]
     # a finish on the same host only is not elsewhere
-    out = guard.decide_nodes(rows, CAL, finished_elsewhere={Q: {1: {'fxz4'}}})
+    out = guard.decide_nodes(rows, CAL, finished_elsewhere={Q: {1: {'fxz4': 1500}}})
     assert out['tripped'] == []
+
+
+def test_queue_failing_around_the_node_is_the_queues_event():
+    # 2026-09-21: the BNL-XRD door dead, every Perlmutter node failing at
+    # registration in turn, the tasks finished elsewhere the day before.
+    rows = []
+    for k in range(6):
+        rows += _rows(f'nid00{k}', failed=10, duration=600)
+    rows += _rows('nid_ok', finished=2)
+    out = guard.decide_nodes(rows, CAL, finished_elsewhere={Q: {1: {'nid_yesterday': -100}}})
+    assert out['tripped'] == []
+    q = out['queues'][Q]
+    assert q['queue_failing'] and q['queue_event']
+    assert q['failed_fraction'] == round(60 / 62, 3)
+    for k in range(6):
+        v = q['nodes'][f'nid00{k}']
+        assert v['state'] == 'clear' and v['reason'] == guard.QUEUE_FAILING, v['reason']
+        assert v['evidence']['queue_others_failed_fraction'] >= 0.8
+
+
+def test_black_hole_in_a_working_queue_still_trips():
+    # the black hole eats most of the queue's jobs, but the rest of the
+    # queue works: the others' failed fraction is what is judged
+    rows = _rows('bad.site.edu', failed=40, duration=120)
+    rows += _rows('good1.site.edu', finished=5) + _rows('good2.site.edu', finished=5)
+    rows += _rows('good3.site.edu', finished=3, failed=1)
+    out = guard.decide_nodes(rows, CAL)
+    assert out['tripped'] == [(Q, 'bad.site.edu')]
+    v = out['queues'][Q]['nodes']['bad.site.edu']
+    assert v['evidence']['queue_others_jobs'] == 14
+    assert v['evidence']['queue_others_failed_fraction'] == round(1 / 14, 3)
+    assert not out['queues'][Q]['queue_failing']
 
 
 def test_not_nodes_are_reported_not_judged():
@@ -167,10 +214,25 @@ def test_storm_is_the_queues_event():
     for i in range(12):
         rows += _rows(f'nid{i:04d}', failed=10, duration=60)
     rows += _rows('healthy', finished=3)
+    # twelve hosts dying inside one interval: the burst reading
     out = guard.decide_nodes(rows, CAL, {'storm_nodes': 10})
     q = out['queues'][Q]
     assert out['tripped'] == [] and q['queue_event'] and q['storm_hosts'] == 12 and q['tripped'] == 0
     assert all(v['reason'] == guard.QUEUE_EVENT for v in q['nodes'].values())
+    # the same twelve spread over hours, the queue failing around each:
+    # the queue's condition, before any count of tripped hosts is taken
+    for i, r in enumerate(rows):
+        r['endtime'] = 600 * i
+    out = guard.decide_nodes(rows, CAL, {'storm_nodes': 10})
+    q = out['queues'][Q]
+    assert out['tripped'] == [] and q['queue_event'] and q['queue_failing'] and q['tripped'] == 0
+    assert all(v['reason'] == guard.QUEUE_FAILING for v in q['nodes'].values())
+    # the same twelve in a queue that works around them: the storm cap
+    rows += _rows('healthy', finished=600, end=10 ** 6)
+    out = guard.decide_nodes(rows, CAL, {'storm_nodes': 10})
+    q = out['queues'][Q]
+    assert out['tripped'] == [] and q['queue_event'] and q['storm_hosts'] == 12 and q['tripped'] == 0
+    assert all(v['reason'] == guard.QUEUE_EVENT for h, v in q['nodes'].items() if h != 'healthy')
     out = guard.decide_nodes(rows, CAL, {'storm_nodes': 12})
     assert len(out['tripped']) == 12 and not out['queues'][Q]['queue_event']
 
@@ -253,7 +315,7 @@ def test_burst_is_the_queues_event_not_the_big_nodes():
         for j in range(8):                    # a big node: eight deaths at the same moment
             rows.append({'queue': Q, 'host': f'slot1_{j}@{big}', 'jobstatus': 'failed',
                          'jeditaskid': 39973, 'duration_s': 420 + j, 'endtime': t0 + 60 + j})
-    rows += _rows('other.node', finished=5, task=39973, end=t0 - 3600)
+    rows += _rows('other.node', finished=5, task=39973, end=t0 + 3600)   # the task goes on elsewhere
     out = guard.decide_nodes(rows, {Q: 17 * 60.0})
     q = out['queues'][Q]
     assert out['tripped'] == [] and q['queue_event'] and q['tripped'] == 0
@@ -274,8 +336,10 @@ def test_burst_is_the_queues_event_not_the_big_nodes():
     out = guard.decide_nodes(rows + hole, {Q: 17 * 60.0})
     assert out['tripped'] == [(Q, 'warlock12')] and out['queues'][Q]['queue_event']
     assert out['queues'][Q]['nodes']['warlock12']['reason'] == guard.BLACK_HOLE
-    # under the cap it is nobody's burst: ten hosts do not make a queue event
+    # under the cap it is nobody's burst: ten hosts do not make a queue
+    # event, in a queue that otherwise works
     few = [r for r in rows if not r['host'].startswith('fc0') or int(r['host'][2:]) < 10]
+    few += _rows('other.node', finished=60, task=39973, end=t0 + 3600)
     out = guard.decide_nodes(few, {Q: 17 * 60.0}, {'storm_nodes': 13})
     assert not out['queues'][Q]['queue_event'] and len(out['tripped']) == 3
     # endtimes as ISO strings and as datetimes bucket the same way

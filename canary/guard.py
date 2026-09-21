@@ -38,6 +38,7 @@ NOT_FAST = 'not_fast'
 TASKS_FAIL_EVERYWHERE = 'tasks_fail_everywhere'
 NO_CALIBRATION = 'no_calibration'
 QUEUE_EVENT = 'queue_event'
+QUEUE_FAILING = 'queue_failing'
 NO_OTHER_NODE = 'no_other_node'
 
 
@@ -95,6 +96,21 @@ def _bursts(hosts, cfg):
     return {b: len(h) for b, h in buckets.items() if len(h) > cfg['storm_nodes']}
 
 
+def _burst_failures(entries, bursts, cfg):
+    """How many of a node's failures fall in the queue's burst buckets."""
+    if not bursts:
+        return 0
+    width = cfg['storm_minutes'] * 60.0
+    n = 0
+    for e in entries:
+        if e['status'] != 'failed':
+            continue
+        t = _seconds(e.get('endtime'))
+        if t is not None and int(t // width) in bursts:
+            n += 1
+    return n
+
+
 def _in_bursts(entries, bursts, cfg):
     """Whether a node's failures are the queue's burst: at least
     ``failed_fraction`` of its timed failures fall in burst buckets."""
@@ -134,9 +150,20 @@ def decide_nodes(rows, calibration, settings=None, finished_elsewhere=None):
 
     ``calibration`` maps queue to its median finished walltime in seconds
     (None or absent when unknown). ``finished_elsewhere`` is the
-    attribution's longer look back: ``{queue: {task: {host, ...}}}``, the
-    hosts on which each task finished over the attribution window; the
-    window's own finishes are added to it. Returns::
+    attribution's longer look back: ``{queue: {task: {host: endtime}}}``,
+    the hosts on which each task finished over the attribution window
+    with the latest finish on each (a set of hosts, with no times, is
+    taken as finishes whose time is unknown); the window's own finishes
+    are added to it. The attribution is contemporaneous: a task counts as
+    finishing elsewhere only by a finish on another host at or after the
+    node's first failure in the window, since the queue that finished
+    the node's tasks yesterday and fails them everywhere today is the
+    queue's condition (Perlmutter under the dead BNL-XRD door, 2026-09-21:
+    every node tripped in turn on finishes from before the door died).
+    For the same reason a node whose queue fails around it, the other
+    hosts' terminal jobs at ``failed_fraction`` failed or worse over at
+    least ``min_jobs`` of them, is the queue's event (``queue_failing``),
+    not a black hole. Returns::
 
         {'queues': {queue: {'median_finished_s', 'fast_under_s', 'jobs',
                             'hosts': int, 'judged': int, 'tripped': int,
@@ -190,7 +217,7 @@ def decide_nodes(rows, calibration, settings=None, finished_elsewhere=None):
                   'site': row.get('site') or '', 'pandaid': row.get('pandaid'),
                   'error': row.get('error') or ''})
         if status == 'finished' and row.get('jeditaskid') is not None:
-            q['finished_tasks'].setdefault(row['jeditaskid'], set()).add(host)
+            _note_finish(q['finished_tasks'], row['jeditaskid'], host, row.get('endtime'))
 
     out_queues = {}
     tripped = []
@@ -200,14 +227,28 @@ def decide_nodes(rows, calibration, settings=None, finished_elsewhere=None):
         median = calibration.get(queue)
         median = float(median) if median else None
         fast_under = median * cfg['fast_ratio'] if median else None
-        finished_tasks = {t: set(h) for t, h in ((finished_elsewhere or {}).get(queue) or {}).items()}
+        finished_tasks = {}
+        for t, hosts in ((finished_elsewhere or {}).get(queue) or {}).items():
+            if isinstance(hosts, dict):
+                for h, end in hosts.items():
+                    _note_finish(finished_tasks, t, h, end)
+            else:
+                for h in hosts:
+                    _note_finish(finished_tasks, t, h, None)
         for t, hosts in q['finished_tasks'].items():
-            finished_tasks.setdefault(t, set()).update(hosts)
-        finishing_hosts = set().union(*finished_tasks.values()) if finished_tasks else set()
+            for h, end in hosts.items():
+                _note_finish(finished_tasks, t, h, end)
+        finishing_hosts = set().union(*(set(h) for h in finished_tasks.values())) if finished_tasks else set()
         nodes = {}
         q_tripped = []
+        queue_failing = False
         q_jobs = sum(v['failed'] + v['finished'] for v in q['not_nodes'].values())
         bursts = _bursts(q['hosts'], cfg)
+        # The queue's jobs outside its bursts, which are explained already.
+        burst_by_host = {h: _burst_failures(entries, bursts, cfg) for h, entries in q['hosts'].items()}
+        q_failed_all = sum(1 for entries in q['hosts'].values() for e in entries if e['status'] == 'failed')
+        q_n_all = sum(len(entries) for entries in q['hosts'].values())
+        q_burst = sum(burst_by_host.values())
         for host, entries in q['hosts'].items():
             hosts_total += 1
             q_jobs += len(entries)
@@ -224,7 +265,21 @@ def decide_nodes(rows, calibration, settings=None, finished_elsewhere=None):
                 verdict['reason'] = QUEUE_EVENT
                 verdict['evidence']['burst'] = True
                 continue
+            # The rest of the queue, its bursts set aside: a node is a black
+            # hole against a queue that works; a queue failing around a
+            # node that would trip is the queue's condition, whatever the
+            # node's own count.
+            others_n = (q_n_all - q_burst) - (len(entries) - burst_by_host[host])
+            others_failed = (q_failed_all - q_burst) - (verdict['evidence']['failed'] - burst_by_host[host])
+            others_fraction = (others_failed / others_n) if others_n else 0.0
+            verdict['evidence']['queue_others_jobs'] = others_n
+            verdict['evidence']['queue_others_failed_fraction'] = round(others_fraction, 3)
             if verdict['state'] == 'tripped':
+                if others_n >= cfg['min_jobs'] and others_fraction >= cfg['failed_fraction']:
+                    verdict['state'] = 'clear'
+                    verdict['reason'] = QUEUE_FAILING
+                    queue_failing = True
+                    continue
                 q_tripped.append(host)
         storm = len(q_tripped) > cfg['storm_nodes']
         if storm:
@@ -233,13 +288,14 @@ def decide_nodes(rows, calibration, settings=None, finished_elsewhere=None):
                 nodes[host]['reason'] = QUEUE_EVENT
         else:
             tripped.extend((queue, host) for host in q_tripped)
-        queue_event = storm or bool(bursts)
+        queue_event = storm or bool(bursts) or queue_failing
         width = cfg['storm_minutes'] * 60
         out_queues[queue] = {
             'median_finished_s': median, 'fast_under_s': fast_under,
             'jobs': q_jobs, 'hosts': len(q['hosts']), 'judged': len(nodes),
             'tripped': 0 if storm else len(q_tripped),
-            'queue_event': queue_event,
+            'queue_event': queue_event, 'queue_failing': queue_failing,
+            'failed_fraction': round(q_failed_all / q_n_all, 3) if q_n_all else None,
             'storm_hosts': max([len(q_tripped) if storm else 0] + list(bursts.values())),
             'bursts': [{'from_s': b * width, 'to_s': (b + 1) * width, 'hosts': n}
                        for b, n in sorted(bursts.items())],
@@ -248,6 +304,30 @@ def decide_nodes(rows, calibration, settings=None, finished_elsewhere=None):
     return {'queues': out_queues, 'tripped': tripped, 'judged': judged_total,
             'hosts': hosts_total, 'jobs': jobs, 'malformed': malformed,
             'settings': cfg}
+
+
+def _note_finish(finished_tasks, task, host, end):
+    """Record a finish of ``task`` on ``host`` at ``end`` (seconds, or
+    None when unknown), keeping the latest per host; a known time never
+    gives way to an unknown one."""
+    hosts = finished_tasks.setdefault(task, {})
+    t = _seconds(end)
+    prev = hosts.get(host, None)
+    if host not in hosts or (t is not None and (prev is None or t > prev)):
+        hosts[host] = t
+
+
+def _finished_elsewhere_since(task_hosts, host, since):
+    """The other hosts on which a task finished at or after ``since``
+    (seconds); a finish of unknown time counts, and every finish counts
+    when the node's own failures carry no time."""
+    out = set()
+    for other, end in (task_hosts or {}).items():
+        if other == host:
+            continue
+        if end is None or since is None or end >= since:
+            out.add(other)
+    return out
 
 
 def _pct(values, q):
@@ -274,9 +354,13 @@ def _judge(host, entries, finished_tasks, finishing_hosts, median, fast_under, c
             fast += 1
     fast_fraction = (fast / len(failed)) if failed else 0.0
     tasks_failed = sorted({e['task'] for e in failed if e.get('task') is not None})
-    finished_elsewhere = sorted(
-        t for t in tasks_failed
-        if any(other != host for other in finished_tasks.get(t, ())))
+    # The attribution is contemporaneous: a finish elsewhere at or after
+    # this node's first failure in the window.
+    fail_times = [t for t in (_seconds(e.get('endtime')) for e in failed) if t is not None]
+    first_failure = min(fail_times) if fail_times else None
+    elsewhere = {t: _finished_elsewhere_since(finished_tasks.get(t), host, first_failure)
+                 for t in tasks_failed}
+    finished_elsewhere = sorted(t for t, hosts in elsewhere.items() if hosts)
     ends = [e['endtime'] for e in entries if e.get('endtime') is not None]
     sites = {}
     for e in entries:
@@ -292,7 +376,7 @@ def _judge(host, entries, finished_tasks, finishing_hosts, median, fast_under, c
     recent = sorted((e for e in failed if e.get('pandaid') is not None),
                     key=lambda e: (e.get('endtime') is None, e.get('endtime')), reverse=True)
     sample_jobs = [e['pandaid'] for e in recent[:5]]
-    elsewhere_hosts = {t: len(finished_tasks.get(t, set()) - {host}) for t in finished_elsewhere}
+    elsewhere_hosts = {t: len(elsewhere[t]) for t in finished_elsewhere}
     p10, p90 = _pct(durations, 0.1), _pct(durations, 0.9)
     spread = round(p90 / p10, 3) if (p10 and p90) else None
     # The fixed-time kill: nothing finished, every failure at one time.
@@ -312,6 +396,7 @@ def _judge(host, entries, finished_tasks, finishing_hosts, median, fast_under, c
         'median_finished_s': median, 'fast_under_s': fast_under,
         'tasks_failed': tasks_failed,
         'tasks_finished_elsewhere': finished_elsewhere,
+        'first_failure_s': first_failure,
         'other_nodes_finishing': len(finishing_hosts - {host}),
         'first_end': min(ends) if ends else None,
         'last_end': max(ends) if ends else None,
