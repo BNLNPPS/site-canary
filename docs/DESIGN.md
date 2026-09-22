@@ -241,6 +241,20 @@ easy rerun) is WFMS scope; preventing and bounding the burn is
 canary scope. The node-level instrument is the node guard,
 [NODE_GUARD.md](NODE_GUARD.md).
 
+## Storage infrastructure
+
+The storage doors production writes through are shared infrastructure,
+not a property of any one queue: every queue writing through a door
+asks the same question of it, and a door that stops taking bytes stops
+every one of them. That question is therefore asked once, centrally,
+and directly — the door is used rather than inspected, and not through
+a job, since a job would buy a worker's vantage, batch scheduling and a
+PanDA record that this check has no use for, at the cost of the queue
+wait that makes a verdict late. What a job does add, whether a
+particular site can reach a particular door, stays with the probes that
+run as jobs. The instrument is the storage door canary,
+[STORAGE_DOORS.md](STORAGE_DOORS.md).
+
 ## AI-ready products
 
 The products of site-canary — the health states, the capability
