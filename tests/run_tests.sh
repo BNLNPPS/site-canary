@@ -10,4 +10,5 @@ PY=python3
 [ -n "$VIRTUAL_ENV" ] && [ -x "$VIRTUAL_ENV/bin/python" ] && PY="$VIRTUAL_ENV/bin/python"
 "$PY" tests/test_basic.py || exit 1
 "$PY" tests/test_guard.py || exit 1
-exec "$PY" tests/test_nodes.py
+"$PY" tests/test_nodes.py || exit 1
+exec "$PY" tests/test_doors.py
