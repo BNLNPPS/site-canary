@@ -39,6 +39,7 @@ NO_ANSWER = 'no_answer'
 NOT_FORMED = 'not_formed'
 STAT_UNCONFIRMED = 'stat_unconfirmed'
 CANARY_CREDENTIAL = 'canary_credential'
+CERTIFICATE_EXPIRED = 'certificate_expired'
 
 # Answer classes of one step. An authorization refusal is told apart
 # from any other refusal because it is the one a canary carrying a bad
@@ -184,9 +185,11 @@ def decide_doors(readings, settings=None, now=None):
     each value carrying ``verdict``, ``reason`` and ``evidence``.
 
     A door is ``up`` when its write and its stat were answered, ``down``
-    when its write was refused, and ``unknown`` when the probe was not
-    formed or went unanswered. A failed delete never makes a door down:
-    the door took the bytes, which is what production asks of it.
+    when its write was refused or the certificate it serves has already
+    expired, and ``unknown`` when the probe was not formed or went
+    unanswered with a certificate still in force. A failed delete never
+    makes a door down: the door took the bytes, which is what production
+    asks of it.
 
     One cross-door reading: when every probed door refuses in the same
     cycle with an authorization answer, none is down — that is a canary
@@ -240,6 +243,17 @@ def decide_doors(readings, settings=None, now=None):
             verdict, reason = UNKNOWN, CANARY_CREDENTIAL
         else:
             verdict, reason = DOWN, REFUSED
+
+        # Silence with an expired certificate is not doubt. A door whose
+        # certificate has run out refuses every session the production
+        # client opens, whatever this cycle's client made of it: the
+        # dead BNL door answered the pilot's client "[FATAL] TLS error
+        # ... error_ssl" and gave the agent's client nothing at all in
+        # thirty seconds. The date is the same fact for both. A write
+        # that succeeded outranks it, since the door plainly works.
+        if verdict != UP and evidence.get('certificate_days_left') is not None \
+                and evidence['certificate_days_left'] <= 0:
+            verdict, reason = DOWN, CERTIFICATE_EXPIRED
 
         out[door] = {'verdict': verdict, 'reason': reason, 'evidence': evidence}
     return out

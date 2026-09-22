@@ -101,17 +101,55 @@ def test_a_failed_delete_does_not_make_a_door_down():
 
 def test_a_refused_write_is_down():
     out = doors.decide_doors([_reading(BNL, write='other', said=TLS_SAID,
-                                       expiry=EXPIRED)], now=NOW)
+                                       expiry=VALID)], now=NOW)
     assert out[BNL]['verdict'] == doors.DOWN
     assert out[BNL]['reason'] == doors.REFUSED
     assert 'error_ssl' in out[BNL]['evidence']['said']
+
+
+def test_a_refusal_at_a_door_whose_certificate_ran_out_is_named_for_it():
+    """The reason a reader sees is the cause, not the symptom."""
+    out = doors.decide_doors([_reading(BNL, write='other', said=TLS_SAID,
+                                       expiry=EXPIRED)], now=NOW)
+    assert out[BNL]['verdict'] == doors.DOWN
+    assert out[BNL]['reason'] == doors.CERTIFICATE_EXPIRED
     assert out[BNL]['evidence']['certificate_days_left'] < 0
+    assert 'error_ssl' in out[BNL]['evidence']['said']
 
 
-def test_silence_is_never_down():
-    out = doors.decide_doors([_reading(BNL, write='silent')], now=NOW)
+def test_silence_alone_is_never_down():
+    out = doors.decide_doors([_reading(BNL, write='silent', expiry=VALID)], now=NOW)
     assert out[BNL]['verdict'] == doors.UNKNOWN
     assert out[BNL]['reason'] == doors.NO_ANSWER
+    # and with no certificate read at all
+    out = doors.decide_doors([_reading(BNL, write='silent')], now=NOW)
+    assert out[BNL]['verdict'] == doors.UNKNOWN
+
+
+def test_silence_with_an_expired_certificate_is_down():
+    """What the dead BNL door gave this canary, 2026-09-22: xrdcp said
+    nothing in thirty seconds while the certificate read 1.76 days
+    past. The date is the fact; the client's silence is not."""
+    out = doors.decide_doors([_reading(BNL, write='silent', expiry=EXPIRED)], now=NOW)
+    assert out[BNL]['verdict'] == doors.DOWN
+    assert out[BNL]['reason'] == doors.CERTIFICATE_EXPIRED
+
+
+def test_an_expired_certificate_outranks_the_canarys_own_credential():
+    readings = [_reading(BNL, write='auth', said=AUTH_SAID, expiry=EXPIRED),
+                _reading(JLAB, write='auth', said=AUTH_SAID, expiry=VALID)]
+    out = doors.decide_doors(readings, now=NOW)
+    assert out[BNL]['verdict'] == doors.DOWN
+    assert out[BNL]['reason'] == doors.CERTIFICATE_EXPIRED
+    assert out[JLAB]['verdict'] == doors.UNKNOWN
+    assert out[JLAB]['reason'] == doors.CANARY_CREDENTIAL
+
+
+def test_a_door_that_takes_bytes_outranks_its_certificate_date():
+    """A write that succeeded says the door works, whatever a date
+    read beside it says."""
+    out = doors.decide_doors([_reading(JLAB, expiry=EXPIRED)], now=NOW)
+    assert out[JLAB]['verdict'] == doors.UP
 
 
 def test_no_client_is_a_probe_that_was_not_formed():

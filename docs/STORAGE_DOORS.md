@@ -65,8 +65,18 @@ probed on the next enqueue rather than at the next hour.
    (`canary.doors.decide_doors`): `up` when the write and the stat
    succeeded; `down` when the write was refused, with the refusal and
    the certificate's date as its evidence; `unknown` when the probe
-   could not be formed or gave no answer at all. Silence is never
-   `down`. A delete that fails is recorded and reported and does not
+   could not be formed or gave no answer at all.
+
+   Silence alone is never `down`; silence from a door whose certificate
+   has already run out is. The date is the fact, and the client's
+   complaint is not portable: the dead BNL door answered the pilot's
+   client "[FATAL] TLS error ... error_ssl" and gave this canary's
+   client nothing at all in thirty seconds, which on the first rule
+   alone would have read as doubt for two days. A door whose
+   certificate is past is `down` however it answered — unless the write
+   succeeded, which outranks any date read beside it.
+
+   A delete that fails is recorded and reported and does not
    make a door `down`: the door took the bytes, which is the question
    production asks of it, and the fixed path bounds what a failed
    delete leaves behind.
