@@ -213,18 +213,35 @@ def test_every_door_refusing_authorization_is_the_canarys_own_fault():
     assert {v['reason'] for v in out.values()} == {doors.CANARY_CREDENTIAL}
 
 
-def test_one_door_refusing_authorization_while_another_works_is_down():
-    readings = [_reading(BNL, write='auth', said=AUTH_SAID), _reading(JLAB)]
-    out = doors.decide_doors(readings, now=NOW)
-    assert out[BNL]['verdict'] == doors.DOWN
+def test_a_door_that_refuses_us_is_not_a_door_that_is_down():
+    """BNL-XRD, 2026-09-22: "permission denied" creating the probe path,
+    from a door that was alive and taking production's bytes. The door
+    answered; what it refused was this canary's right to write there."""
+    denied = ('TLS: Unable to use cert+key file ... has excessive access rights. '
+              'Run: [ERROR] Server responded with an error: [3010] Unable to create '
+              '/eic/EPIC/canary/storage-door-probe; permission denied')
+    out = doors.decide_doors([_reading(BNL, write='auth', said=denied, expiry=VALID),
+                              _reading(JLAB)], now=NOW)
+    assert out[BNL]['verdict'] == doors.UNKNOWN
+    assert out[BNL]['reason'] == doors.NOT_PERMITTED
     assert out[JLAB]['verdict'] == doors.UP
 
 
-def test_a_single_door_refusing_alone_is_down():
-    """With one door probed there is nothing to compare it against, so
-    the reading stands as what it says."""
+def test_a_single_door_refusing_authorization_alone_is_not_down_either():
     out = doors.decide_doors([_reading(BNL, write='auth', said=AUTH_SAID)], now=NOW)
-    assert out[BNL]['verdict'] == doors.DOWN
+    assert out[BNL]['verdict'] == doors.UNKNOWN
+    assert out[BNL]['reason'] == doors.NOT_PERMITTED
+
+
+def test_an_address_the_client_would_not_send_is_not_the_doors_answer():
+    """JLAB-TAPE-SE, 2026-09-22: "[FATAL] Invalid address: (destination)"
+    is xrdcp refusing to try, not a tape endpoint that is down."""
+    assert doors.answer_class(50, 'Run: [FATAL] Invalid address: (destination)') \
+        == doors.NO_CLIENT
+    out = doors.decide_doors(
+        [_reading(BNL, write='no_client', said='[FATAL] Invalid address')], now=NOW)
+    assert out[BNL]['verdict'] == doors.UNKNOWN
+    assert out[BNL]['reason'] == doors.NOT_FORMED
 
 
 def test_a_certificate_near_its_end_is_reported_while_the_door_works():

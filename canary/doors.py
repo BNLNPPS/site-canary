@@ -37,6 +37,7 @@ WROTE = 'wrote'
 REFUSED = 'refused'
 NO_ANSWER = 'no_answer'
 NOT_FORMED = 'not_formed'
+NOT_PERMITTED = 'not_permitted'
 STAT_UNCONFIRMED = 'stat_unconfirmed'
 CANARY_CREDENTIAL = 'canary_credential'
 CERTIFICATE_EXPIRED = 'certificate_expired'
@@ -50,6 +51,9 @@ NO_CLIENT = 'no_client'
 SILENT = 'silent'
 OTHER = 'other'
 
+# A rejection the client made before the door said anything: the
+# address does not parse, the scheme is not one it speaks.
+NOT_AN_ANSWER = re.compile(r"invalid address|unknown host|not supported", re.I)
 AUTH_ANSWER = re.compile(
     r"auth[a-z]* (failed|error)|not authori[sz]ed|permission denied"
     r"|no protocols left|invalid credential|proxy (expired|not found)"
@@ -82,6 +86,8 @@ def answer_class(rc, text):
         return NO_CLIENT
     if rc == RC_TIMEOUT:
         return SILENT
+    if NOT_AN_ANSWER.search(text or ""):
+        return NO_CLIENT
     return AUTH if AUTH_ANSWER.search(text or "") else OTHER
 
 
@@ -292,6 +298,14 @@ def decide_doors(readings, settings=None, now=None):
             verdict, reason = UNKNOWN, NO_ANSWER
         elif credential:
             verdict, reason = UNKNOWN, CANARY_CREDENTIAL
+        elif answer == AUTH:
+            # The door answered, and what it refused was this canary's
+            # right to write where it asked — BNL-XRD, 2026-09-22:
+            # "permission denied" creating the probe path, from a door
+            # that was alive and taking production's bytes. A door that
+            # says no to us is not a door that is down; it is a probe
+            # that needs a path it may write.
+            verdict, reason = UNKNOWN, NOT_PERMITTED
         else:
             verdict, reason = DOWN, REFUSED
 
