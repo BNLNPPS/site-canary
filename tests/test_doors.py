@@ -68,11 +68,48 @@ def test_door_from_the_catalogs_protocol():
     assert doors.door_of(None) is None
 
 
-def test_probe_path_is_fixed_and_normalized():
+def test_probe_path_keeps_the_catalogs_doubled_slash():
+    """BNL-XRD's xrootd prefix is '//eic/EPIC': in an xrootd URL the
+    second slash begins the server's absolute path, and the payload
+    writes root://epicxrd1.sdcc.bnl.gov:1094//eic/EPIC/..."""
+    assert doors.probe_path('//eic/EPIC', '/canary', 'probe') == '//eic/EPIC/canary/probe'
+    assert doors.server_path('//eic/EPIC/canary/probe') == '/eic/EPIC/canary/probe'
     assert doors.probe_path('/eic/EPIC', '/canary', 'probe') == '/eic/EPIC/canary/probe'
     assert doors.probe_path('', 'canary/', 'probe') == '/canary/probe'
     # the same path every cycle: a delete that failed is overwritten
     assert (doors.probe_path('/a', '/b', 'p') == doors.probe_path('/a', '/b', 'p'))
+
+
+# The protocols the JLab catalog gives for these RSEs, 2026-09-22.
+BNL_PROTOCOLS = [
+    {'scheme': 'https', 'hostname': 'epicxrd1.sdcc.bnl.gov', 'port': 8443,
+     'prefix': '/eic/EPIC', 'domains': {'wan': {'write': 3, 'read': 3}}},
+    {'scheme': 'root', 'hostname': 'epicxrd1.sdcc.bnl.gov', 'port': 1094,
+     'prefix': '//eic/EPIC', 'domains': {'wan': {'write': 2, 'read': 2}}},
+    {'scheme': 'root', 'hostname': 'epicxrd1.sdcc.bnl.gov', 'port': 1095,
+     'prefix': '//eic/EPIC', 'domains': {'wan': {'write': 0, 'read': 0}}},
+]
+JLAB_PROTOCOLS = [
+    {'scheme': 'root', 'hostname': 'dtn-eic.jlab.org', 'port': 1094,
+     'prefix': '//volatile/eic/EPIC', 'domains': {'wan': {'read': 1}}},
+    {'scheme': 'https', 'hostname': 'dtn-rucio.jlab.org', 'port': 1094,
+     'prefix': '//volatile/eic/EPIC', 'domains': {'wan': {'write': 1}}},
+    {'scheme': 'root', 'hostname': 'dtn-rucio.jlab.org', 'port': 1094,
+     'prefix': '//volatile/eic/EPIC', 'domains': {'wan': {'write': 2}}},
+]
+
+
+def test_the_write_door_is_the_catalogs_preferred_xrootd_one():
+    got = doors.write_door(BNL_PROTOCOLS)
+    assert got['door'] == BNL and got['prefix'] == '//eic/EPIC' and got['priority'] == 2
+    # JLab ranks https first; the xrootd door the probe speaks is next
+    got = doors.write_door(JLAB_PROTOCOLS)
+    assert got['door'] == JLAB and got['priority'] == 2
+    # a protocol that is not for writing is not a write door
+    assert doors.write_door([JLAB_PROTOCOLS[0]]) is None
+    assert doors.write_door([]) is None
+    assert doors.write_door([{'scheme': 'root', 'hostname': 'h',
+                              'domains': {'wan': {'write': 'x'}}}]) is None
 
 
 def test_certificate_expiry():

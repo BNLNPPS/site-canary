@@ -102,11 +102,61 @@ def door_of(protocol):
     return {'door': f"{scheme}://{authority}", 'prefix': prefix}
 
 
+def write_door(protocols, schemes=('root',)):
+    """The door of the RSE's preferred write protocol among ``schemes``,
+    with its priority, or None when the catalog gives none. Pure.
+
+    The catalog ranks an RSE's protocols for writing in
+    ``domains.wan.write``, lowest number first, and a protocol not for
+    writing carries 0 or nothing: BNL-XRD offers https on 8443 at 3 and
+    root on 1094 at 2, so root:1094 is the door its writes go through,
+    the same one the payload's preserve step uses. Only xrootd doors are
+    probed for now, because xrdcp and xrdfs are what the probe speaks;
+    an RSE whose write protocols are all of another scheme is reported
+    as not probed rather than guessed at.
+    """
+    ranked = []
+    for protocol in protocols or ():
+        if not isinstance(protocol, dict):
+            continue
+        if str(protocol.get('scheme') or '').lower() not in schemes:
+            continue
+        priority = ((protocol.get('domains') or {}).get('wan') or {}).get('write')
+        try:
+            priority = int(priority)
+        except (TypeError, ValueError):
+            continue
+        if priority <= 0:
+            continue
+        door = door_of(protocol)
+        if door:
+            ranked.append((priority, dict(door, priority=priority,
+                                          scheme=protocol.get('scheme'))))
+    if not ranked:
+        return None
+    return min(ranked, key=lambda item: item[0])[1]
+
+
 def probe_path(prefix, probe_prefix, name):
     """The path the probe writes, fixed per door so a delete that fails
-    is overwritten next cycle rather than accumulating. Pure."""
-    parts = [p.strip('/') for p in (prefix, probe_prefix, name) if p]
-    return '/' + '/'.join(parts)
+    is overwritten next cycle rather than accumulating. Pure.
+
+    The prefix is kept as the catalog gives it, doubled slash and all:
+    an RSE's xrootd prefix reads ``//eic/EPIC`` because in an xrootd URL
+    the second slash begins the server's absolute path, so
+    ``root://host:1094`` + ``//eic/EPIC/...`` is the URL the payload
+    writes and ``/eic/EPIC/...`` is the path xrdfs takes
+    (``server_path``).
+    """
+    base = (prefix or '').rstrip('/')
+    tail = '/'.join(p.strip('/') for p in (probe_prefix, name) if p)
+    return f"{base}/{tail}" if base else f"/{tail}"
+
+
+def server_path(path):
+    """The path as the door's own namespace holds it: the URL form's
+    leading slashes collapsed to one. Pure."""
+    return re.sub(r'^/+', '/', path or '/')
 
 
 def certificate_expiry(enddate_text):
@@ -167,10 +217,11 @@ def probe_door(door, path, timeout_s=None, run=None, size_bytes=1024):
     try:
         with os.fdopen(handle, 'wb') as f:
             f.write(b'site-canary storage door probe\n' * (size_bytes // 31 + 1))
+        on_door = server_path(path)
         reading['write'] = _step(run, ['xrdcp', '-f', local, f"{door}{path}"], timeout_s)
         if reading['write']['ok']:
-            reading['stat'] = _step(run, ['xrdfs', door, 'stat', path], timeout_s)
-            reading['delete'] = _step(run, ['xrdfs', door, 'rm', path], timeout_s)
+            reading['stat'] = _step(run, ['xrdfs', door, 'stat', on_door], timeout_s)
+            reading['delete'] = _step(run, ['xrdfs', door, 'rm', on_door], timeout_s)
     finally:
         try:
             os.unlink(local)
