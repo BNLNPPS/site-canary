@@ -2,8 +2,8 @@
 
 The canary for storage infrastructure: the doors production writes
 through are used, on a cadence, from one vantage, and what they answer
-is published where a job can read it before it does any work. This
-document is the plan of record; the design record is
+becomes a record production operations can act on while the damage is
+still small. This document is the plan of record; the design record is
 [DESIGN.md](DESIGN.md) and the node guard, whose cycle, publication and
 readers this follows piece for piece, is [NODE_GUARD.md](NODE_GUARD.md).
 
@@ -62,11 +62,23 @@ probed on the next enqueue rather than at the next hour.
    fails and gives warning before it fails: a door is reported expiring
    inside `warn_days` while it still works.
 4. **The verdict**, a pure function over the readings
-   (`canary.doors.decide_door`): `up` when the write, the stat and the
-   delete all succeeded; `down` when the write was refused, with the
-   refusal and the certificate's date as its evidence; `unknown` when
-   the probe could not be formed or gave no answer at all. Silence is
-   never `down`.
+   (`canary.doors.decide_doors`): `up` when the write and the stat
+   succeeded; `down` when the write was refused, with the refusal and
+   the certificate's date as its evidence; `unknown` when the probe
+   could not be formed or gave no answer at all. Silence is never
+   `down`. A delete that fails is recorded and reported and does not
+   make a door `down`: the door took the bytes, which is the question
+   production asks of it, and the fixed path bounds what a failed
+   delete leaves behind.
+
+   The decision reads every door of a cycle together, because the
+   reading that looks like a dead door is also what a canary with a
+   bad credential sees. When every probed door refuses in the same
+   cycle with the same authorization class, none is `down`: they are
+   `unknown` with the reason `canary_credential`, the canary's own
+   condition and an error on the cycle. This is the node guard's
+   `queue_failing` reading at storage level — the instrument does not
+   condemn the world for its own fault.
 
 ## The record and its publication
 
@@ -76,39 +88,36 @@ certificate's date, the cycle's time), one `storage_door_cycle` action,
 and a notice on a change of verdict, so a door that dies is on the
 production notice stream within the hour rather than in a job log.
 
-Actuation is the node guard's, in form and in mechanism: every cycle
-the verdicts go out as JSON with the cycle's `mode` and a
-`valid_until`, stored as the cached product, served anonymously at
-`GET /api/storage-doors/` on the monitor, and put on the devcloud
-bucket's public pilot prefix,
-`https://epic-devcloud-stageout.s3.us-east-1.amazonaws.com/pilot/storage-doors.json`,
-where every worker can fetch it without a credential. A reader acts
-only on a live document inside its validity, so a publisher that stops
-leaves no verdict standing; a shadow document is read, reported and
-never acted on.
+The verdicts are served anonymously at `GET /api/storage-doors/` on the
+monitor, carrying the cycle's time and a `valid_until` so a reader can
+tell a current reading from a stale one. The validity is three hours
+against the node guard's twenty minutes, because the cadence is hourly:
+a reading must outlive one missed cycle, and a door's state does not
+change on the minute. It is a setting beside the cadence and is kept
+above twice `interval_h`.
 
-The validity is three hours against the node guard's twenty minutes,
-because the cadence is hourly: a document must outlive one missed
-cycle, and a door's state does not change on the minute. It is a
-setting beside the cadence and is kept above twice `interval_h`; a
-cadence raised without it would leave readers acting on nothing for
-the difference.
+## Nothing acts on it automatically
 
-## The readers
+The canary reports; production operations act. A door that trips raises
+its notice and its alarm, and what follows — the certificate renewed,
+the tasks held, the writes pointed elsewhere — is an operator's
+decision on an operator's timescale (Torre, 2026-09-22). No automatic
+actuation is wired to this record, and none is added without that
+decision being taken deliberately: a wrong verdict here would stop
+production everywhere at once, which is exactly the blast radius the
+node guard's per-node scope avoids.
 
-- **The payload's landing check**, everywhere: it already fetches the
-  node guard's exclusion, and fetches this beside it. When the door
-  this job must write through is `down` in a live document inside its
-  validity, the payload declines the landing with exit 86 in the first
-  seconds (swf-epicprod docs/EPICPROD_PAYLOAD.md, exit code 86).
-- **The payload's own certificate read** stays as the fallback between
-  cycles: the canary speaks hourly, and a door that dies at 09:05 is
-  read by the job itself until 10:00. The canary's write is the
-  authority — it fails for reasons a certificate date cannot show — and
-  the in-job read is the cheap sentinel that covers the gap.
-- **The registrar and the assessments** read the record for what they
-  already report: a delivery that stalls against a door known to be
-  down is not an unexplained stall.
+In particular the payload is not tied to it. The payload's landing
+check reads the certificate of its own write door itself
+(swf-epicprod docs/EPICPROD_PAYLOAD.md, exit code 86), which is a job's
+own business and stands on its own evidence. When tying the two is
+wanted, the first step is a shadow reader — the landing fetches the
+record, reports what it would have done, declines nothing — exactly as
+the node guard was proven before live mode.
+
+The record's other readers are readers, not actuators: the registrar
+and the assessments explain a stalled delivery against a door known to
+be down rather than leaving it unexplained.
 
 ## Settings
 
@@ -117,7 +126,7 @@ SysConfig keys, seeded at their defaults on first read:
 | Key | Default | Meaning |
 |---|---|---|
 | `storage_doors.enabled` | false | the global switch |
-| `storage_doors.mode` | shadow | `shadow`: probe, record, publish, readers act on nothing; `live`: a `down` door declines landings |
+| `storage_doors.mode` | shadow | `shadow`: probe, record and report, nothing acts; `live` is reserved for an actuator that does not exist yet and is not set without the decision above |
 | `storage_doors.interval_h` | 1 | a door is probed when its last probe is older than this |
 | `storage_doors.skip_rses` | [] | RSEs not probed |
 | `storage_doors.probe_prefix` | `/canary` | the path under the RSE's prefix the probe writes to |
@@ -143,7 +152,8 @@ and nothing at all in bytes.
 3. The `storage_door_cycle` doer on the production-operations agent,
    the settings, the cached product, the cycle action and the change
    notice, the hourly cron enqueue. Switched on in shadow mode.
-4. The published document, the monitor endpoint, and the landing
-   check's reader; live mode.
-5. The page: the doors with their verdicts and certificates, beside the
-   node guard's.
+4. The monitor endpoint and the page: the doors with their verdicts,
+   their certificates and their last write, beside the node guard's.
+5. Only on a deliberate decision, and shadow first: a reader. The
+   published document on the devcloud public pilot prefix exists when
+   something off the monitor needs to read it, and not before.
