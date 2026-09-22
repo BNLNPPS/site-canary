@@ -57,6 +57,12 @@ probed on the next enqueue rather than at the next hour.
    no retries inside it: a door that is down sees one touch an hour and
    never a storm, and the fixed path means a delete that fails is
    overwritten by the next cycle instead of accumulating.
+
+   A cycle probes at most `max_per_cycle` doors, the most overdue
+   first, because a door that does not answer costs its whole timeout
+   and a catalog's worth of those would outlast the doer that runs the
+   cycle. With the enqueue every fifteen minutes each door still gets
+   its turn inside the hour.
 3. **The certificate.** The date on the certificate the door serves,
    read in the same cycle, because it names the cause when the write
    fails and gives warning before it fails: a door is reported expiring
@@ -149,7 +155,8 @@ SysConfig keys, seeded at their defaults on first read:
 | `storage_doors.interval_h` | 1 | a door is probed when its last probe is older than this |
 | `storage_doors.skip_rses` | [] | RSEs not probed |
 | `storage_doors.probe_prefix` | `/canary` | the path under the RSE's prefix the probe writes to |
-| `storage_doors.timeout_s` | 60 | each of the write, the stat and the delete |
+| `storage_doors.timeout_s` | 30 | each of the write, the stat, the delete and the certificate read |
+| `storage_doors.max_per_cycle` | 4 | doors probed in one cycle, most overdue first |
 | `storage_doors.warn_days` | 7 | a certificate this close to its end is reported |
 | `storage_doors.validity_h` | 3 | the published document's life |
 
