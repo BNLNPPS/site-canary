@@ -129,6 +129,15 @@ The record's other readers are readers, not actuators: the registrar
 and the assessments explain a stalled delivery against a door known to
 be down rather than leaving it unexplained.
 
+The node guard reads it too, and the direction is the safe one — the
+record only ever excuses a failure, never causes an exclusion. A door
+that takes nothing kills every node's jobs at the same point in their
+run, so the guard sets aside the registration failures that ended while
+a door was down before it judges anything
+([NODE_GUARD.md](NODE_GUARD.md), The detector). That is why this record
+carries its own history on the action stream: a verdict change is an
+action, and the spans a door was down are read back from them.
+
 ## Settings
 
 SysConfig keys, seeded at their defaults on first read:

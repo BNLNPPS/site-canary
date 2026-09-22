@@ -62,8 +62,23 @@ the pilot's cached queuedata lags a rule's expiration, are set aside
 before judgment and counted on the cycle record and the page (the
 platform's declared record from CRIC, swf-epicprod
 CONTINUOUS_PRODUCTION.md, Declared downtime): a node is not a black
-hole for a downtime's deaths. A node trips when all of these hold in
-the window:
+hole for a downtime's deaths.
+
+The registration failures of a dead write door are set aside the same
+way, from the storage door canary's own record of when a door was down
+([STORAGE_DOORS.md](STORAGE_DOORS.md)): a door that takes nothing kills
+every node's jobs at the same point in their run, which reads as a
+fixed-time kill on each node in turn as the queue recovers around it.
+The case that named it: on 2026-09-22, with BNL-XRD's door certificate
+expired since 9/20, four Perlmutter nodes were excluded in an hour on
+failures that were all `pilot 1305` at registration — the door's, not
+theirs. Only a failure of the registration class (`pilot 1305`,
+`exe 78`, `trans 78`) inside a recorded down span is set aside, so a
+node killing jobs for its own reasons during an outage still reads as
+what it is; and a door the canary has not watched has no spans, which
+sets nothing aside.
+
+A node trips when all of these hold in the window:
 
 - at least `min_jobs` terminal jobs on the host;
 - at least `failed_fraction` of them failed;
