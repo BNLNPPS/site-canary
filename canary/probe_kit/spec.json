@@ -3,6 +3,7 @@
   "exec": "python3 evgen_job_dispatcher.py canary 60",
   "site": "%QUEUE%",
   "prodSourceLabel": "test",
+  "taskPriority": 951,
   "processingType": "canary",
   "userName": "canary",
   "nJobs": 1,

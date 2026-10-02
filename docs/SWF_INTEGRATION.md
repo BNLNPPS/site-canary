@@ -140,7 +140,12 @@ standing installation on the swf-testbed host (`pandaserver02`).
   `CANARY_PRMON`, and `SWF_MONITOR_RELEASE` override. The probe's
   container is the current campaign's production image resolved from
   PCS through `SWF_MONITOR_URL` at dispatch (`CANARY_CONTAINER_IMAGE`
-  overrides); the spec's `containerImage` is the fallback.
+  overrides); the spec's `containerImage` is the fallback. A probe
+  runs at task priority 951, one above the top production level (950):
+  PanDA dispatches equal priorities oldest task first, so a probe at a
+  production priority waits behind that queue's whole backlog. On
+  2026-09-30 a GREX probe at the default 900 waited two days behind
+  production at 950. An operator's escalation (1000) still goes first.
 - Payload canaries (IMPLEMENTATION.md § Payload canaries): the page's
   Run control enqueues a `payload_canary` message carrying the PCS task
   and the queue; the agent's handler runs `canary payload-canary`, which
