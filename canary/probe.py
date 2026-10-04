@@ -5,6 +5,7 @@ probes page both read through here.
 """
 import logging
 import os
+import secrets
 from datetime import datetime, timedelta
 
 logger = logging.getLogger('canary.probe')
@@ -228,7 +229,11 @@ def dispatch_payload_canary(now, task_name, queue_name, submit_script=None,
     submit_script = submit_script or os.environ.get(
         'CANARY_PAYLOAD_SUBMIT',
         str(Path(release) / 'scripts' / 'submit-evgen-task.py'))
-    stamp = f"{now:%Y%m%dT%H%M%SZ}.{queue.name}"
+    # The stamp names the output datasets, so it must be unique even for
+    # several canaries on one queue in the same second (2026-10-03: nine
+    # reproductions requested together; four were refused as "Data
+    # Identifier already exists").
+    stamp = f"{now:%Y%m%dT%H%M%SZ}.{queue.name}.{secrets.token_hex(3)}"
     data = {'kind': 'payload', 'task': task_name, 'stamp': stamp,
             'dataset': f'epic:/{CANARY_DATASET_ROOT}/{stamp}'}
     if row:
