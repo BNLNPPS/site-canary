@@ -179,3 +179,25 @@ Development outside the platform: `scripts/webdev.py check|runserver`
 renders the page against the `CANARY_DB_*` store using the
 `scripts/devweb/` stand-ins for the base template and `swf_fmt`
 filters. The stand-ins are dev-only and never installed hosted.
+
+## Workdir hygiene payload
+
+`canary workdir-hygiene (--root PATH | --root-parent-of-cwd)` is the first
+active remediation payload. It is intended to be submitted as an ordinary
+PanDA job to the target queue, so it sees the payload work filesystem with the
+same identity and permissions as the jobs that created the remnants.
+Its CLI execution path uses only the Python standard library so the source can
+be staged directly with the job.
+
+The default mode is read-only. It reports byte and inode state and classifies
+immediate children of the work root against a full-match name rule, ownership,
+filesystem, protected-workdir, and age checks. `--delete` additionally requires
+the queue's enforced maximum runtime, checks that the age window covers that
+runtime plus a safety margin, serializes deleting jobs with a root-level file
+lock, revalidates each candidate, refuses nested filesystem boundaries, and
+caps deletions per run. Its output schema is
+`canary-workdir-hygiene-report/0`.
+
+The controller that submits this payload through the Canary PanDA share and
+ingests the staged report is not yet built. The detailed contract and
+commissioning sequence are in [WORKDIR_HYGIENE.md](WORKDIR_HYGIENE.md).

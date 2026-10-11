@@ -6,6 +6,9 @@ functional probing of the distributed sites, automated exclusion and
 recovery acting through native PanDA mechanisms, and a live record of
 site state and capability. Its [design](docs/DESIGN.md) has been laid out;
 implementation follows the increment plan in [docs/PLAN.md](docs/PLAN.md).
+The first active remediation payload, a least-privileged PanDA workdir and
+inode hygiene job, is specified in
+[docs/WORKDIR_HYGIENE.md](docs/WORKDIR_HYGIENE.md).
 
 The role is in part the one HammerCloud has filled for ATLAS:
 site health testing as input to exclusion and recovery, and dynamic

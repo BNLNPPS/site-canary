@@ -8,6 +8,8 @@ import os
 import subprocess
 import sys
 import tempfile
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
@@ -162,6 +164,61 @@ def test_landing_fingerprint():
     for key in ('os', 'kernel', 'cpu_model', 'cpu_cores', 'mem_gb',
                 'fingerprint'):
         assert key in fp, key
+
+
+def test_workdir_hygiene_scan_and_delete():
+    from canary.hygiene import workdir_hygiene_report
+
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary) / 'condorjobs'
+        current = root / 'eic_current'
+        stale = root / 'eic_Stale123'
+        fresh = root / 'eic_Fresh123'
+        unrelated = root / 'other_project'
+        for directory in (current, stale, fresh, unrelated):
+            directory.mkdir(parents=True)
+            (directory / 'payload.dat').write_text('test', encoding='utf-8')
+        old = (datetime.now(timezone.utc) - timedelta(days=10)).timestamp()
+        for directory in (current, stale):
+            os.utime(directory / 'payload.dat', (old, old))
+            os.utime(directory, (old, old))
+        symlink = root / 'eic_Link123'
+        symlink.symlink_to(stale, target_is_directory=True)
+
+        scan = workdir_hygiene_report(
+            root=root, current_workdir=current, min_age_hours=72)
+        assert scan['mode'] == 'scan'
+        assert scan['scan']['eligible'] == 1
+        assert scan['scan']['protected'] == 1
+        assert scan['scan']['symlink'] == 1
+        assert stale.exists(), 'scan-only mode removed a directory'
+
+        clean = workdir_hygiene_report(
+            root=root, current_workdir=current, min_age_hours=72,
+            delete=True, max_job_runtime_hours=24,
+            safety_margin_hours=24)
+        assert clean['actions']['deleted'] == 1
+        assert not stale.exists()
+        assert current.exists() and fresh.exists() and unrelated.exists()
+        assert symlink.is_symlink(), 'cleanup followed or removed a symlink'
+
+
+def test_workdir_hygiene_refuses_unsafe_delete_window():
+    from canary.hygiene import HygieneError, workdir_hygiene_report
+
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary) / 'condorjobs'
+        current = root / 'eic_current'
+        current.mkdir(parents=True)
+        try:
+            workdir_hygiene_report(
+                root=root, current_workdir=current, min_age_hours=24,
+                delete=True, max_job_runtime_hours=24,
+                safety_margin_hours=24)
+        except HygieneError as exc:
+            assert 'runtime plus margin' in str(exc)
+        else:
+            raise AssertionError('unsafe deletion window was accepted')
 
 
 def main():

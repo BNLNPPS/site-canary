@@ -84,6 +84,35 @@ def cmd_evaluate(args):
     return 0
 
 
+def cmd_workdir_hygiene(args):
+    from .hygiene import HygieneError, workdir_hygiene_report
+
+    try:
+        report = workdir_hygiene_report(
+            root=args.root,
+            root_parent_of_cwd=args.root_parent_of_cwd,
+            name_regex=args.name_regex,
+            min_age_hours=args.min_age_hours,
+            delete=args.delete,
+            max_job_runtime_hours=args.max_job_runtime_hours,
+            safety_margin_hours=args.safety_margin_hours,
+            max_delete=args.max_delete,
+            protected_paths=args.protect,
+            report_limit=args.report_limit,
+        )
+    except HygieneError as exc:
+        print(f'ERROR: {exc}', file=sys.stderr)
+        return 2
+    text = json.dumps(report, indent=2)
+    if args.output:
+        with open(args.output, 'w', encoding='utf-8') as output:
+            output.write(text + '\n')
+        print(f'workdir hygiene report written to {args.output}')
+    else:
+        print(text)
+    return 1 if report['status'] == 'error' else 0
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog='canary',
@@ -133,10 +162,51 @@ def main(argv=None):
                         help='JSON output instead of table')
     p_eval.set_defaults(func=cmd_evaluate)
 
+    p_hygiene = subparsers.add_parser(
+        'workdir-hygiene',
+        help='inspect or clean stale PanDA workdirs as an ordinary payload')
+    root = p_hygiene.add_mutually_exclusive_group(required=True)
+    root.add_argument('--root', help='exact shared PanDA work-root path')
+    root.add_argument(
+        '--root-parent-of-cwd', action='store_true',
+        help='use the parent of this cleanup job workdir as the work root')
+    p_hygiene.add_argument(
+        '--name-regex', default=r'eic_[A-Za-z0-9]+',
+        help='full-match regex for owned workdir names '
+             '(default: eic_[A-Za-z0-9]+)')
+    p_hygiene.add_argument(
+        '--min-age-hours', type=float, default=168,
+        help='minimum top-level workdir age (default: 168 hours)')
+    p_hygiene.add_argument(
+        '--delete', action='store_true',
+        help='delete eligible workdirs; default is scan-only')
+    p_hygiene.add_argument(
+        '--max-job-runtime-hours', type=float,
+        help='queue-enforced maximum runtime; required with --delete')
+    p_hygiene.add_argument(
+        '--safety-margin-hours', type=float, default=24,
+        help='age margin beyond maximum runtime (default: 24 hours)')
+    p_hygiene.add_argument(
+        '--max-delete', type=int, default=100,
+        help='maximum top-level workdirs deleted per run (default: 100)')
+    p_hygiene.add_argument(
+        '--protect', action='append', default=[], metavar='PATH',
+        help='additional active workdir path to protect; repeatable')
+    p_hygiene.add_argument(
+        '--report-limit', type=int, default=100,
+        help='maximum per-workdir records in JSON (default: 100)')
+    p_hygiene.add_argument(
+        '--output', '-o', help='write JSON report to a payload output file')
+    p_hygiene.set_defaults(func=cmd_workdir_hygiene)
+
     args = parser.parse_args(argv)
     if args.command is None:
         parser.print_help()
         return 0
+    # The hygiene payload is deliberately standard-library-only so staged
+    # source can run on a worker without installing the controller stack.
+    if args.command == 'workdir-hygiene':
+        return args.func(args)
     from .log import setup_logging
     setup_logging()
     return args.func(args)

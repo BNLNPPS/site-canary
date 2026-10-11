@@ -221,6 +221,32 @@ The rider ships with the ePIC job carrier. Probe jobs are where
 rider changes can be exercised before they ride production work: the
 canary tests the canary.
 
+## Work-area hygiene actuation
+
+The pilot and its wrapper can clean a payload workdir only when they execute
+their normal exit paths. Hard kills, OOM kills, batch eviction, and node loss
+can bypass both, leaving experiment-created directories to consume space or
+inodes on a site filesystem. This is a Canary concern: it is a site-health
+condition created by experiment work and is discoverable only where payloads
+actually land.
+
+Canary addresses it with a dedicated PanDA job at the affected queue. The job
+runs under the ordinary ePIC payload identity, measures the actual work
+filesystem, identifies old orphan candidates under a narrowly declared
+workdir contract, and in an explicitly enabled mode removes them. Canary owns
+discovery, dispatch, policy, audit, and verification; the payload performs the
+local operation with no elevated or centrally held site access. Shared and
+node-local work roots are distinguished because one job can cover a shared
+root but only its landing node's local filesystem.
+
+Deletion is never inferred from a scan. It requires an exact root or an
+explicit parent-of-current-workdir selection, a full-match workdir name rule,
+same-owner and same-filesystem checks, protection of the running job, an age
+greater than the queue's enforced maximum runtime plus a safety margin, a
+per-run deletion cap, and a complete action report. The detailed job contract,
+report schema, safeguards, and GREX commissioning sequence are in
+[WORKDIR_HYGIENE.md](WORKDIR_HYGIENE.md).
+
 ## Burn-through protection
 
 A misbehaving site or node can burn through a task's jobs at speed:
