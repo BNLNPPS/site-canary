@@ -382,3 +382,28 @@ memory. The cursor is the newest job modification time folded, kept in
 a state file beside the storage store. The ePIC queue detail page's
 observed section shows simulation and reconstruction CPU seconds per
 event beside each processor.
+
+## Workdir hygiene
+
+`canary workdir-hygiene (--root PATH | --root-parent-of-cwd)` is the first
+actuation payload (`canary/hygiene/workdirs.py`, contract and commissioning
+in [WORKDIR_HYGIENE.md](WORKDIR_HYGIENE.md)). It runs as an ordinary PanDA job
+on the target queue, so it sees the payload work filesystem with the identity
+and permissions of the jobs that left the remnants; its execution path is
+standard library only, so its source is staged with the job.
+
+Without `--delete` it is read-only: byte and inode state of the work root,
+and each immediate child classified by a full-match name rule
+(`--name-regex`, default `eic_[A-Za-z0-9]+`), ownership, filesystem,
+protected workdirs (its own, and `--protect`) and age (`--min-age-hours`,
+default 168). `--delete` also requires the queue's enforced maximum runtime
+(`--max-job-runtime-hours`) and an age window covering it plus
+`--safety-margin-hours` (default 24); deleting runs serialize on a
+root-level file lock, revalidate each candidate, refuse nested filesystem
+boundaries and stop at `--max-delete` (default 100). The report is JSON,
+schema `canary-workdir-hygiene-report/0`, to stdout or `--output`.
+
+Not built: the controller that submits it through the Canary PanDA share
+and ingests its staged report, queue hygiene profiles, policy triggering
+and action-stream records (PLAN.md § 8). It is wired into no probe or
+schedule.

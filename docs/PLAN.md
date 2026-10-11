@@ -151,7 +151,7 @@ platform's other operational state. A standalone MCP server wrapping
 the packaged app's REST API is the path for deployments outside the
 platform, should one be needed.
 
-### 8. Actuation and probes
+### 8. Actuation and probes (in progress)
 
 Verdicts act on PanDA queue status with action-stream provenance
 records; the dedicated global-shares probe leaf; the first probe jobs
@@ -169,6 +169,14 @@ PanDA job metadata at each dispatch cycle and ingested into the map
 under the landed site, with the run's creation-to-start wait, run
 time, node, and error components recorded on the probe run
 (IMPLEMENTATION.md, Collection).
+
+**Workdir hygiene (built, not commissioned).** `canary workdir-hygiene`
+scans the payload work filesystem for inode state and stale ePIC-owned
+PanDA workdirs, with an explicitly enabled, bounded deletion mode; its
+design and commissioning contract are in [WORKDIR_HYGIENE.md](WORKDIR_HYGIENE.md).
+It is the first actuation payload. Controller-side PanDA submission,
+report ingestion, queue hygiene profiles, policy triggering and
+action-stream records remain.
 
 **Node I/O check.** A probe check class for the pilot working
 filesystem: a bounded write, fsync, and read-back on the pilot work
