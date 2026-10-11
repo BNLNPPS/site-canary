@@ -133,7 +133,7 @@ def cmd_payload_canary(args):
         now, args.task, args.queue, row=args.row, row_text=args.row_text,
         mem_limit_mb=args.mem_limit_mb, signature=args.signature,
         pandaid=args.pandaid, container=args.container,
-        request_id=args.request_id)
+        request_id=args.request_id, threads=args.threads)
     if args.json:
         print(json.dumps(result, indent=2))
     else:
@@ -234,6 +234,11 @@ def main(argv=None):
                            help="the container image to run instead of the "
                                 "task's configuration's (the image the "
                                 "crashed task ran)")
+    p_payload.add_argument('--threads', type=int, default=0,
+                           help='cores the job requests and threads npsim '
+                                'and eicrecon run with, where the image '
+                                'supports it (swf-epicprod EPICPROD_PAYLOAD.md, '
+                                'Multithreading); memory stays per core')
     p_payload.add_argument('--request-id', default='',
                            help='the identity of the reproduction request '
                                 'this run answers, recorded on the run')

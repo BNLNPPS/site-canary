@@ -201,7 +201,7 @@ CANARY_DATASET_ROOT = 'TEST/canary'
 def dispatch_payload_canary(now, task_name, queue_name, submit_script=None,
                             row=None, row_text='', mem_limit_mb=None,
                             signature='', pandaid=None, container='',
-                            request_id='', trigger=None):
+                            request_id='', trigger=None, threads=0):
     """Submit one payload canary through the production submit doer in
     its canary mode and record it as a ProbeRun of kind payload. Every
     failure is recorded on the run and returned, never raised.
@@ -249,6 +249,8 @@ def dispatch_payload_canary(now, task_name, queue_name, submit_script=None,
         data['request_id'] = request_id
     if container:
         data['container'] = container
+    if threads:
+        data['threads'] = int(threads)
     run_row = ProbeRun.objects.create(
         queue=queue, submitted_at=now,
         trigger=trigger or ProbeRun.Trigger.MANUAL, data=data)
@@ -262,6 +264,8 @@ def dispatch_payload_canary(now, task_name, queue_name, submit_script=None,
         cmd += ['--canary-mem-limit-mb', str(int(mem_limit_mb))]
     if container:
         cmd += ['--canary-container', container]
+    if threads:
+        cmd += ['--canary-threads', str(int(threads))]
     proxy = os.environ.get('EVGEN_X509_PROXY')
     if proxy:
         cmd += ['--proxy', proxy]
