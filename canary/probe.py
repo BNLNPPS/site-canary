@@ -201,7 +201,9 @@ CANARY_DATASET_ROOT = 'TEST/canary'
 def dispatch_payload_canary(now, task_name, queue_name, submit_script=None,
                             row=None, row_text='', mem_limit_mb=None,
                             signature='', pandaid=None, container='',
-                            request_id='', trigger=None, threads=0):
+                            request_id='', trigger=None, threads=0,
+                            payload_ref='', switches=(), credential='x509',
+                            sender=''):
     """Submit one payload canary through the production submit doer in
     its canary mode and record it as a ProbeRun of kind payload. Every
     failure is recorded on the run and returned, never raised.
@@ -212,8 +214,12 @@ def dispatch_payload_canary(now, task_name, queue_name, submit_script=None,
     ``signature`` and ``pandaid`` name the crash signature and the
     crashed job a reproduction stands for, and ``request_id`` the
     request the run answers, so the requester joins run to request
-    exactly (swf-epicprod SEGFAULT_DIAGNOSIS.md, Reproduction). All are
-    recorded on the run."""
+    exactly (swf-epicprod SEGFAULT_DIAGNOSIS.md, Reproduction). A
+    developer's canary (swf-epicprod DEVELOPING_THE_PAYLOAD.md) names a
+    ``payload_ref`` (pr:<N>, <branch> or <owner>:<branch>), its
+    ``switches`` and its ``credential``; the run records them, the
+    ``sender``, and the commit the doer resolved, since that code runs
+    with the production credential. All are recorded on the run."""
     import os
     import re
     import subprocess
@@ -251,6 +257,14 @@ def dispatch_payload_canary(now, task_name, queue_name, submit_script=None,
         data['container'] = container
     if threads:
         data['threads'] = int(threads)
+    if payload_ref:
+        data['payload_ref'] = payload_ref
+    if switches:
+        data['switches'] = list(switches)
+    if credential and credential != 'x509':
+        data['credential'] = credential
+    if sender:
+        data['sender'] = sender
     run_row = ProbeRun.objects.create(
         queue=queue, submitted_at=now,
         trigger=trigger or ProbeRun.Trigger.MANUAL, data=data)
@@ -266,6 +280,12 @@ def dispatch_payload_canary(now, task_name, queue_name, submit_script=None,
         cmd += ['--canary-container', container]
     if threads:
         cmd += ['--canary-threads', str(int(threads))]
+    if payload_ref:
+        cmd += ['--canary-payload-ref', payload_ref]
+    for switch in switches or ():
+        cmd += ['--canary-switch', switch]
+    if credential and credential != 'x509':
+        cmd += ['--canary-credential', credential]
     proxy = os.environ.get('EVGEN_X509_PROXY')
     if proxy:
         cmd += ['--proxy', proxy]
@@ -280,6 +300,10 @@ def dispatch_payload_canary(now, task_name, queue_name, submit_script=None,
         return dict(result, outcome='timeout')
     out = (p.stdout or '') + (p.stderr or '')
     match = re.search(r'jediTaskID[=:\s]+(\d+)', out)
+    commit = re.search(r'payload commit: ([0-9a-f]{40})', out)
+    if commit:
+        run_row.data = dict(run_row.data, payload_commit=commit.group(1))
+        run_row.save(update_fields=['data', 'modified_at'])
     if p.returncode == 0 and match:
         run_row.jeditaskid = int(match.group(1))
         run_row.save(update_fields=['jeditaskid', 'modified_at'])

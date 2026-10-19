@@ -133,7 +133,9 @@ def cmd_payload_canary(args):
         now, args.task, args.queue, row=args.row, row_text=args.row_text,
         mem_limit_mb=args.mem_limit_mb, signature=args.signature,
         pandaid=args.pandaid, container=args.container,
-        request_id=args.request_id, threads=args.threads)
+        request_id=args.request_id, threads=args.threads,
+        payload_ref=args.payload_ref, switches=args.switch,
+        credential=args.credential, sender=args.sender)
     if args.json:
         print(json.dumps(result, indent=2))
     else:
@@ -271,6 +273,19 @@ def main(argv=None):
     p_payload.add_argument('--request-id', default='',
                            help='the identity of the reproduction request '
                                 'this run answers, recorded on the run')
+    p_payload.add_argument('--payload-ref', default='',
+                           help="a developer's canary (swf-epicprod "
+                                'DEVELOPING_THE_PAYLOAD.md): the payload of '
+                                'pr:<N>, <branch> or <owner>:<branch> instead '
+                                'of the deployed one')
+    p_payload.add_argument('--switch', action='append', default=[],
+                           help='EPICPROD_SWITCH_<NAME>=<value> in the job '
+                                'environment; repeatable')
+    p_payload.add_argument('--credential', choices=['x509', 'token'], default='x509',
+                           help='x509 ships the eicprod proxy (default); token '
+                                'ships no proxy and the CANARY_TOKEN_FILE token')
+    p_payload.add_argument('--sender', default='',
+                           help='who sent the canary, recorded on the run')
     p_payload.add_argument('--json', action='store_true',
                            help='JSON output')
     p_payload.set_defaults(func=cmd_payload_canary)

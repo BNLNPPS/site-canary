@@ -5,6 +5,7 @@ Public read-only, matching the System Status page; the platform owns
 access policy (docs/SWF_INTEGRATION.md).
 """
 import logging
+import re
 
 from django.shortcuts import render
 
@@ -140,9 +141,54 @@ def _json_body(request):
     return body if isinstance(body, dict) else None
 
 
+# A developer's canary (swf-epicprod docs/DEVELOPING_THE_PAYLOAD.md): the
+# forms the submit doer accepts, checked here so a bad value is refused on
+# the page rather than in the agent.
+PAYLOAD_REF_RE = re.compile(
+    r'^(pr:\d{1,7}|(?:[A-Za-z0-9][A-Za-z0-9-]{0,38}:)?[A-Za-z0-9][A-Za-z0-9_./-]{0,199})$')
+PAYLOAD_SWITCH_RE = re.compile(r'^EPICPROD_SWITCH_[A-Z0-9_]{1,60}=[A-Za-z0-9_.,:/+=-]{0,200}$')
+
+
+def _developer_settings(body):
+    """The developer settings of a payload canary request, checked:
+    ({payload_ref, switches, credential, threads}, error message or '')."""
+    ref = str(body.get('payload_ref') or '').strip()
+    if ref and not PAYLOAD_REF_RE.match(ref):
+        return {}, 'The payload source is pr:<N>, <branch> or <owner>:<branch>.'
+    raw = body.get('switches') or []
+    if isinstance(raw, str):
+        raw = raw.splitlines()
+    switches = [str(s).strip() for s in raw if str(s).strip()]
+    bad = [s for s in switches if not PAYLOAD_SWITCH_RE.match(s)]
+    if bad:
+        return {}, (f'A switch is EPICPROD_SWITCH_<NAME>=<value>, the value without '
+                    f'spaces or shell characters: {bad[0][:80]}')
+    credential = str(body.get('credential') or 'x509').strip()
+    if credential not in ('x509', 'token'):
+        return {}, 'The credential is x509 or token.'
+    try:
+        threads = int(body.get('threads') or 0)
+    except (TypeError, ValueError):
+        return {}, 'Threads is a number.'
+    if threads < 0 or threads > 64:
+        return {}, 'Threads is between 0 and 64.'
+    out = {}
+    if ref:
+        out['payload_ref'] = ref
+    if switches:
+        out['switches'] = switches
+    if credential != 'x509':
+        out['credential'] = credential
+    if threads:
+        out['threads'] = threads
+    return out, ''
+
+
 def payload_canary_api(request):
-    """JSON write: {"task", "queue"}. 202 when the canary agent took
-    the message; the run is collected on the next dispatch cycle."""
+    """JSON write: {"task", "queue"} and a developer's optional
+    {"payload_ref", "switches", "credential", "threads"}. 202 when the
+    canary agent took the message; the run is collected on the next
+    dispatch cycle."""
     import json as _json
 
     from django.http import JsonResponse
@@ -158,16 +204,19 @@ def payload_canary_api(request):
     if not task or not queue_name:
         return JsonResponse({'error': 'A payload canary needs a PCS task and a queue'},
                             status=400)
+    settings, error = _developer_settings(body)
+    if error:
+        return JsonResponse({'error': error}, status=400)
     try:
         from monitor_app.activemq_connection import ActiveMQConnectionManager
         sent = ActiveMQConnectionManager().send_message(
-            '/queue/canary.ops', _json.dumps({
+            '/queue/canary.ops', _json.dumps(dict({
                 'msg_type': 'payload_canary',
                 'namespace': 'canary',
                 'task': task,
                 'queue': queue_name,
                 'created_by': user.username,
-            }))
+            }, **settings)))
     except Exception as e:  # noqa: BLE001
         logger.error('payload canary enqueue failed for %s on %s: %s',
                      task, queue_name, e)
@@ -407,7 +456,11 @@ def _payload_row(run):
         first = next(iter(errors.values()), None) or {}
         state, reason = 'failing', str(first.get('diag') or 'job failed')[:200]
     elif run.status == ProbeRun.Status.FAILED_SUBMIT:
-        state, reason = 'unknown', 'submission failed'
+        # The doer's own refusal, so a developer reads why on the page.
+        text = (data.get('stdout') or '') + '\n' + (data.get('stderr') or '')
+        refusals = [ln.split('ERROR:', 1)[1].strip() for ln in text.splitlines() if 'ERROR:' in ln]
+        state, reason = 'unknown', ('submission failed: ' + refusals[-1][:200]
+                                    if refusals else data.get('error') or 'submission failed')
     else:
         state, reason = 'unknown', 'awaiting the report'
     checks = data.get('checks') or []
@@ -424,6 +477,13 @@ def _payload_row(run):
         'stamp': data.get('stamp') or '',
         'dataset': data.get('dataset') or '',
         'payload_version': data.get('payload_version') or '',
+        # A developer's canary: where its payload came from, the commit
+        # the doer resolved, who sent it, how it was credentialed.
+        'payload_ref': data.get('payload_ref') or '',
+        'payload_commit': (data.get('payload_commit') or '')[:12],
+        'sender': data.get('sender') or '',
+        'credential': data.get('credential') or '',
+        'switches': data.get('switches') or [],
         'verdict_state': state,
         'verdict_reason': reason,
         'checks_text': ' · '.join(marks),

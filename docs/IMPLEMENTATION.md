@@ -297,6 +297,22 @@ enqueues a `payload_canary` message for the canary agent; the agent
 runs the CLI and publishes the same completion event as a probe
 dispatch, with `kind` payload.
 
+A developer's canary (swf-epicprod docs/DEVELOPING_THE_PAYLOAD.md)
+takes three more settings, on the Run control and the CLI alike.
+`--payload-ref` runs the payload of a pull request (`pr:<N>`), a branch
+(`<branch>`) or a fork's branch (`<owner>:<branch>`) instead of the
+deployed one: the submit doer fetches it into a bare mirror of
+swf-epicprod (`/opt/swf-monitor/shared/payload-sources`) and exports
+`swf_epicprod/payload` at that commit into the sandbox. `--switch
+EPICPROD_SWITCH_<NAME>=<value>`, repeatable, sets a payload switch in
+the job's environment; no other key is accepted, and a value carries no
+spaces or shell characters. `--credential token` ships no proxy and
+ships the token file the agent names in `CANARY_TOKEN_FILE` as
+`BEARER_TOKEN_FILE`; without one configured the submission is refused
+with that reason. The run records the source, the commit the doer
+resolved and the sender, because the code runs with the production
+credential.
+
 The job's outputs go to one flat dataset under `epic:/TEST/`,
 `/TEST/canary/<stamp>`, holding the FULL and RECO files under their
 own names: no production layout is reproduced, no log goes to JLab

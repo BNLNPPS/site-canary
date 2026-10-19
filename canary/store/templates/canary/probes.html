@@ -200,6 +200,22 @@
         </select>
         <button type="submit" class="btn btn-sm btn-success" {% if not operable %}disabled{% endif %}>Run</button>
         <span class="probe-note text-danger ms-2"></span>
+        <div class="w-100"></div>
+        <label class="small">Payload source
+          <input type="text" name="payload_ref" placeholder="deployed" class="form-control form-control-sm d-inline-block" style="width: 18em;"
+                 title="Empty: the deployed payload. pr:&lt;N&gt; for a pull request, &lt;branch&gt;, or &lt;owner&gt;:&lt;branch&gt; for a fork's branch of swf-epicprod" {% if not operable %}disabled{% endif %}></label>
+        <label class="small">Credential
+          <select name="credential" class="form-select form-select-sm d-inline-block" style="width: auto;"
+                  title="x509 ships the eicprod proxy as production does; token ships no proxy and the canary token file as BEARER_TOKEN_FILE" {% if not operable %}disabled{% endif %}>
+            <option value="x509">x509</option><option value="token">token only</option>
+          </select></label>
+        <label class="small">Threads
+          <input type="number" name="threads" min="0" max="64" placeholder="1" class="form-control form-control-sm d-inline-block" style="width: 5em;"
+                 title="Cores the job requests and threads npsim and eicrecon run with" {% if not operable %}disabled{% endif %}></label>
+        <label class="small">Switches
+          <textarea name="switches" rows="1" placeholder="EPICPROD_SWITCH_NAME=1" class="form-control form-control-sm d-inline-block align-middle" style="width: 22em;"
+                    title="One EPICPROD_SWITCH_&lt;NAME&gt;=&lt;value&gt; per line, set in the job's environment" {% if not operable %}disabled{% endif %}></textarea></label>
+        <a class="small" href="https://github.com/BNLNPPS/swf-epicprod/blob/main/docs/DEVELOPING_THE_PAYLOAD.md">Developing the payload</a>
       </form>
     </div>
   </div>
@@ -210,7 +226,7 @@
         <th>Submitted</th>
         <th title="The PCS task whose first manifest row and configuration the canary ran">Task</th>
         <th>Queue</th>
-        <th title="The epicprod payload version the sandbox shipped">Payload</th>
+        <th title="The epicprod payload version the sandbox shipped; for a developer's canary its source and commit, credential, switches and sender">Payload</th>
         <th>Status</th>
         <th title="The checklist verdict read from the payload report">Verdict</th>
         <th title="Each check of the verdict">Checks</th>
@@ -225,7 +241,7 @@
         <td>{{ r.run.submitted_at|fmt_dt }}{% if r.phase %} <span class="text-muted small">{{ r.phase }}</span>{% endif %}</td>
         <td class="small" style="word-break: break-all;">{{ r.task }}</td>
         <td>{{ r.run.queue.name }}</td>
-        <td class="small">{{ r.payload_version }}</td>
+        <td class="small">{{ r.payload_version }}{% if r.payload_ref %}<br>{{ r.payload_ref }}{% if r.payload_commit %} at {{ r.payload_commit }}{% endif %}{% endif %}{% if r.credential %}<br>{{ r.credential }} credential{% endif %}{% for s in r.switches %}<br>{{ s }}{% endfor %}{% if r.sender %}<br><span class="text-muted">by {{ r.sender }}</span>{% endif %}</td>
         <td class="{{ r.run.status|state_class }}">{{ r.run.status }}</td>
         <td class="{{ r.verdict_state|state_class }}" title="{{ r.verdict_reason }}">{{ r.verdict_state }}</td>
         <td class="small">{{ r.checks_text }}</td>
@@ -291,7 +307,10 @@
       ev.preventDefault();
       const task = form.querySelector('[name=task]').value.trim();
       const queue = form.querySelector('[name=queue]').value;
-      post(urls.payload, {task: task, queue: queue}, form)
+      const field = function (name) { const el = form.querySelector('[name=' + name + ']'); return el ? el.value.trim() : ''; };
+      post(urls.payload, {task: task, queue: queue, payload_ref: field('payload_ref'),
+                          credential: field('credential') || 'x509', threads: field('threads'),
+                          switches: field('switches')}, form)
         .then(function (d) { if (d) window.location.replace(plain); });
     });
   });
