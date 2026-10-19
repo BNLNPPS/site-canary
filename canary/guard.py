@@ -160,7 +160,13 @@ def decide_nodes(rows, calibration, settings=None, finished_elsewhere=None):
     the node's tasks yesterday and fails them everywhere today is the
     queue's condition (Perlmutter under the dead BNL-XRD door, 2026-09-21:
     every node tripped in turn on finishes from before the door died).
-    For the same reason a node whose queue fails around it, the other
+    Nor does a task attribute that fails on the queue's other nodes: over
+    the other hosts that ran it in the window, at least ``min_jobs``, its
+    failed share host by host averages ``failed_fraction`` or more; its
+    few finishes are the jobs that fit (the eAu tasks at a memory ceiling,
+    2026-10-18, failed 95 percent of their jobs on every node, about
+    thirty nodes at a time, and tripped one on its own deaths). For the
+    same reason a node whose queue fails around it, the other
     hosts' terminal jobs at ``failed_fraction`` failed or worse over at
     least ``min_jobs`` of them, is the queue's event (``queue_failing``),
     not a black hole. Returns::
@@ -249,12 +255,14 @@ def decide_nodes(rows, calibration, settings=None, finished_elsewhere=None):
         q_failed_all = sum(1 for entries in q['hosts'].values() for e in entries if e['status'] == 'failed')
         q_n_all = sum(len(entries) for entries in q['hosts'].values())
         q_burst = sum(burst_by_host.values())
+        task_hosts = _task_hosts(q['hosts'])
         for host, entries in q['hosts'].items():
             hosts_total += 1
             q_jobs += len(entries)
             if len(entries) < cfg['fixed_min_jobs']:
                 continue
-            verdict = _judge(host, entries, finished_tasks, finishing_hosts, median, fast_under, cfg)
+            verdict = _judge(host, entries, finished_tasks, finishing_hosts, median, fast_under, cfg,
+                             task_hosts)
             if len(entries) < cfg['min_jobs'] and verdict['state'] != 'tripped':
                 continue            # under the floor: judged for the fixed-time rule only
             judged_total += 1
@@ -339,7 +347,36 @@ def _pct(values, q):
     return round(values[k], 1)
 
 
-def _judge(host, entries, finished_tasks, finishing_hosts, median, fast_under, cfg):
+def _task_hosts(hosts):
+    """Per task, the hosts that ran it in the window with their failed
+    and terminal job counts: ``{task: {host: [failed, jobs]}}``. The
+    queue's bursts are counted: one task's jobs dying together across the
+    fleet is that task failing everywhere."""
+    out = {}
+    for host, entries in hosts.items():
+        for e in entries:
+            if e.get('task') is None:
+                continue
+            c = out.setdefault(e['task'], {}).setdefault(host, [0, 0])
+            c[0] += e['status'] == 'failed'
+            c[1] += 1
+    return out
+
+
+def _failing_elsewhere(task_hosts, host, cfg):
+    """Whether a task fails on the queue's other nodes: over the other
+    hosts that ran it in the window (at least ``min_jobs`` of them), its
+    failed share host by host averages ``failed_fraction`` or more. Each
+    host weighs once, since a black hole cycles through jobs far faster
+    than a working node and by job count would make its task look failed
+    everywhere. Returns (failing, {'hosts', 'failed_share'})."""
+    shares = [f / n for h, (f, n) in (task_hosts or {}).items() if h != host and n]
+    share = sum(shares) / len(shares) if shares else 0.0
+    counts = {'hosts': len(shares), 'failed_share': round(share, 3)}
+    return (len(shares) >= cfg['min_jobs'] and share >= cfg['failed_fraction']), counts
+
+
+def _judge(host, entries, finished_tasks, finishing_hosts, median, fast_under, cfg, task_hosts=None):
     n = len(entries)
     failed = [e for e in entries if e['status'] == 'failed']
     finished = n - len(failed)
@@ -360,6 +397,15 @@ def _judge(host, entries, finished_tasks, finishing_hosts, median, fast_under, c
     first_failure = min(fail_times) if fail_times else None
     elsewhere = {t: _finished_elsewhere_since(finished_tasks.get(t), host, first_failure)
                  for t in tasks_failed}
+    # A task that fails on the queue's other nodes is the task's condition:
+    # the few jobs that fit there attribute nothing to this node (the eAu
+    # tasks at a memory ceiling, 2026-10-18).
+    failing_elsewhere = {}
+    for t in tasks_failed:
+        failing, counts = _failing_elsewhere((task_hosts or {}).get(t), host, cfg)
+        if failing:
+            failing_elsewhere[t] = counts
+            elsewhere[t] = set()
     finished_elsewhere = sorted(t for t, hosts in elsewhere.items() if hosts)
     ends = [e['endtime'] for e in entries if e.get('endtime') is not None]
     sites = {}
@@ -396,6 +442,7 @@ def _judge(host, entries, finished_tasks, finishing_hosts, median, fast_under, c
         'median_finished_s': median, 'fast_under_s': fast_under,
         'tasks_failed': tasks_failed,
         'tasks_finished_elsewhere': finished_elsewhere,
+        'tasks_failing_elsewhere': failing_elsewhere,
         'first_failure_s': first_failure,
         'other_nodes_finishing': len(finishing_hosts - {host}),
         'first_end': min(ends) if ends else None,

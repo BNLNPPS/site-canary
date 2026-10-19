@@ -200,6 +200,78 @@ def test_black_hole_in_a_working_queue_still_trips():
     assert not out['queues'][Q]['queue_failing']
 
 
+def _spread(host, task, status, n, duration, t0, step=400):
+    # one job every `step` seconds, so no five-minute interval holds a burst
+    return [{'queue': Q, 'host': host, 'jobstatus': status, 'jeditaskid': task,
+             'duration_s': duration, 'endtime': t0 + i * step} for i in range(n)]
+
+
+def test_task_failing_on_the_other_nodes_is_not_a_node():
+    # fc20359, 2026-10-18: task 40857 (eAu) killed at its memory ceiling,
+    # 95 percent of its jobs on every node of the queue, the nodes dying
+    # together (the queue's bursts), the few jobs that fit finishing; the
+    # node that took eight of its jobs is not a black hole.
+    rows = _spread('fc20359', 40857, 'failed', 8, 750, 1000, step=10)
+    for k in range(20):
+        rows += _spread(f'fc{k:03d}', 40857, 'failed', 19, 750, 2000 + k)
+        rows += _spread(f'fc{k:03d}', 40857, 'finished', 1, 3000, 9600 + k * 8000)
+    for k in range(5):
+        rows += _spread(f'work{k}', 2, 'finished', 10, 3500, 1000)   # the queue works
+    out = guard.decide_nodes(rows, CAL)
+    assert out['tripped'] == [], out['tripped']
+    assert out['queues'][Q]['bursts']
+    v = out['queues'][Q]['nodes']['fc20359']
+    assert v['reason'] == guard.TASKS_FAIL_EVERYWHERE, v['reason']
+    assert v['evidence']['tasks_failing_elsewhere'] == {40857: {'hosts': 20, 'failed_share': 0.95}}
+    assert v['evidence']['tasks_finished_elsewhere'] == []
+    # the task working on the other nodes, 5 percent failed: the node's own
+    rows = _spread('fc20359', 40857, 'failed', 8, 750, 1000, step=10)
+    for k in range(20):
+        rows += _spread(f'fc{k:03d}', 40857, 'finished', 19, 3000, 2000 + k * 8000)
+        rows += _spread(f'fc{k:03d}', 40857, 'failed', 1, 750, 9600 + k * 8000)
+    out = guard.decide_nodes(rows, CAL)
+    assert out['tripped'] == [(Q, 'fc20359')]
+    assert out['queues'][Q]['nodes']['fc20359']['evidence']['tasks_failing_elsewhere'] == {}
+    # under min_jobs other hosts, the share is not read and the finishes attribute
+    few = (_spread('fc20359', 40857, 'failed', 8, 750, 1000, step=10)
+           + _spread('fc000', 40857, 'failed', 19, 750, 2000)
+           + _spread('fc000', 40857, 'finished', 1, 3000, 9000)
+           + _spread('work0', 2, 'finished', 40, 3500, 1000))
+    assert guard.decide_nodes(few, CAL)['tripped'] == [(Q, 'fc20359')]
+
+
+def test_black_holes_of_one_task_still_trip_by_host_count():
+    # f-9 (GREX, 2026-08): four nodes kill a task's jobs by the hundred
+    # while a dozen nodes finish it; by jobs the task fails 90 percent on
+    # each one's other nodes, by hosts three in fifteen
+    rows = []
+    for k in range(4):
+        rows += _spread(f'n38{k}', 1, 'failed', 200, 120, 1000 + k, step=60)
+    for k in range(12):
+        rows += _spread(f'n40{k:02d}', 1, 'finished', 5, 3500, 1500 + k * 400)
+    for k in range(20):
+        rows += _spread(f'n50{k:02d}', 2, 'finished', 40, 3500, 1000)
+    out = guard.decide_nodes(rows, CAL)
+    assert sorted(h for _, h in out['tripped']) == [f'n38{k}' for k in range(4)], out['tripped']
+    assert out['queues'][Q]['nodes']['n380']['evidence']['tasks_failing_elsewhere'] == {}
+
+
+def test_burst_of_a_working_task_still_trips_a_black_hole():
+    # 2026-09-15: the fleet lost one job each in four minutes and finished
+    # the task's other jobs; the task works on the other nodes, and a
+    # black hole beside the burst trips
+    t0 = 1_800_000_000.0
+    rows = [{'queue': Q, 'host': f'fleet{i:02d}', 'jobstatus': 'failed', 'jeditaskid': 1,
+             'duration_s': 400, 'endtime': t0 + i} for i in range(30)]
+    for i in range(30):
+        rows += _spread(f'fleet{i:02d}', 1, 'finished', 4, 3500, t0 + 3600 + i)
+    rows += _spread('hole', 1, 'failed', 12, 90, t0 - 3 * 3600, step=900)
+    out = guard.decide_nodes(rows, CAL)
+    assert out['queues'][Q]['bursts']
+    assert out['tripped'] == [(Q, 'hole')], out['tripped']
+    assert out['queues'][Q]['nodes']['hole']['evidence']['tasks_failing_elsewhere'] == {}
+
+
 def test_not_nodes_are_reported_not_judged():
     rows = _rows('slot1_1@osgsub01.sdcc.bnl.gov', failed=30, duration=5) + _rows('good.site.edu', finished=2)
     out = guard.decide_nodes(rows, CAL, {'not_nodes': ['osgsub01.sdcc.bnl.gov']})
@@ -213,7 +285,9 @@ def test_storm_is_the_queues_event():
     rows = []
     for i in range(12):
         rows += _rows(f'nid{i:04d}', failed=10, duration=60)
-    rows += _rows('healthy', finished=3)
+    # the task finishes on enough of the other nodes to be the nodes' failing
+    for name in ('healthy', 'healthy1', 'healthy2', 'healthy3', 'healthy4'):
+        rows += _rows(name, finished=1)
     # twelve hosts dying inside one interval: the burst reading
     out = guard.decide_nodes(rows, CAL, {'storm_nodes': 10})
     q = out['queues'][Q]
@@ -311,6 +385,7 @@ def test_burst_is_the_queues_event_not_the_big_nodes():
     for i in range(30):                       # the fleet: one death each, same minutes
         rows.append({'queue': Q, 'host': f'fc{i:05d}', 'jobstatus': 'failed', 'jeditaskid': 39973,
                      'duration_s': 400 + i, 'endtime': t0 + 10 * i})
+        rows += _rows(f'fc{i:05d}', finished=3, task=39973, end=t0 + 7200)   # and the task's others
     for big in ('fc30560', 'fc30607', 'fc30651'):
         for j in range(8):                    # a big node: eight deaths at the same moment
             rows.append({'queue': Q, 'host': f'slot1_{j}@{big}', 'jobstatus': 'failed',

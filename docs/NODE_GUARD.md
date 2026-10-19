@@ -97,7 +97,20 @@ A node trips when all of these hold in the window:
   BNL-XRD door dead since the evening before, every Perlmutter node
   failed its jobs at registration in turn, and each tripped on finishes
   of the same tasks from before the door died; 29 shadow trips in a
-  day on a queue 92 percent failed.
+  day on a queue 92 percent failed. A task that fails on the queue's
+  other nodes attributes nothing, whatever it finished there: over the
+  other hosts that ran it in the window, at least `min_jobs` of them,
+  its failed share host by host averages `failed_fraction` or more
+  (the evidence's `tasks_failing_elsewhere`). Each host weighs once,
+  since a black hole cycles through jobs far faster than a working
+  node and by job count would make its own task look failed
+  everywhere; and the queue's bursts count, since one task's jobs
+  dying together across the fleet is that task failing everywhere.
+  The case that named it: on 2026-10-18 the eAu task 40857 failed 95
+  percent of its jobs on every node of BNL_OSG_EPIC_PROD_1 at its
+  memory ceiling, thirty nodes at a time, and finished the few that
+  fit; fc20359 took five, all killed at twelve minutes, and was
+  excluded as a fixed-time kill on those finishes.
 - the queue works around it: the other hosts' terminal jobs in the
   window, the queue's bursts set aside, are under `failed_fraction`
   failed (over at least `min_jobs` of them). A node that would trip in
@@ -120,9 +133,10 @@ the floor.
 
 A node under the job floor is judged for the fixed-time kill only and
 listed only when it trips. A node whose failures are not fast and not
-at one time, or whose tasks finish nowhere on the queue while other
-nodes finish other work (`tasks_fail_everywhere`), is not a black
-hole; the task detector owns that. Two conditions are the queue's, and
+at one time, or whose tasks finish nowhere on the queue or fail on its
+other nodes while other nodes finish other work
+(`tasks_fail_everywhere`), is not a black hole; the task detector owns
+that. Two conditions are the queue's, and
 the guard names them rather than exclude for them:
 
 - no other node of the queue finished anything in the attribution
