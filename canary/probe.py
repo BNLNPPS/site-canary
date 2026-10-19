@@ -381,6 +381,9 @@ def _collect_payload(run_row, job, raw_metadata, data, ProbeRun, counts):
         checks, verdict = payload_verdict(report)
         if isinstance(report.get('fatal'), dict):
             data['fatal'] = report['fatal']
+        memory = _payload_memory(raw_metadata)
+        if memory:
+            data['memory'] = memory
         data.update({
             'report': 'collected',
             'payload_version': report.get('payload_version') or '',
@@ -445,6 +448,7 @@ JOB_COLUMNS = (
     'exeerrorcode', 'exeerrordiag', 'piloterrorcode', 'piloterrordiag',
     'taskbuffererrorcode', 'taskbuffererrordiag',
     'ddmerrorcode', 'ddmerrordiag', 'transexitcode', 'jobmetrics',
+    'maxrss', 'maxpss', 'minramcount',
 )
 TERMINAL_JOB_STATES = ('finished', 'failed', 'cancelled', 'closed')
 FAILED_TASK_STATES = ('failed', 'aborted', 'broken', 'exhausted')
@@ -531,7 +535,42 @@ def _job_facts(job, queue):
                                  'diag': (job.get(f'{component}errordiag')
                                           or '')[:500]}
     facts['errors'] = errors
+    # The job's peak memory as the pilot measured it (kB in the record)
+    # and its request (MB): what a memory reproduction is read against
+    # (swf-epicprod SEGFAULT_DIAGNOSIS.md, Memory kills).
+    for column, field in (('maxrss', 'maxrss_mb'), ('maxpss', 'maxpss_mb')):
+        if job.get(column):
+            facts[field] = round(int(job[column]) / 1024)
+    if job.get('minramcount'):
+        facts['request_mb'] = int(job['minramcount'])
     return facts
+
+
+# The memory figures of a stage's prmon summary in the payload report
+# (swf-epicprod payload_report.py, prmon_summary) a run keeps.
+PAYLOAD_MEMORY_FIELDS = ('rss_max_kb', 'pss_max_kb', 'vmem_max_kb', 'wall_s', 'trend')
+
+
+def _payload_memory(raw):
+    """Per stage, the memory the payload's own report measured: the
+    prmon peaks and the memory trend of each stage, from the payload
+    report the job report carries under ``payload``. {} when the
+    metadata carries none."""
+    import json
+    try:
+        doc = json.loads(raw) if isinstance(raw, str) else raw
+    except (TypeError, ValueError):
+        return {}
+    prmon = ((doc or {}).get('payload') or {}).get('prmon') if isinstance(doc, dict) else None
+    if not isinstance(prmon, dict):
+        return {}
+    out = {}
+    for stage, rec in prmon.items():
+        if isinstance(rec, dict):
+            kept = {k: rec[k] for k in PAYLOAD_MEMORY_FIELDS if k in rec}
+            if kept:
+                out[stage] = kept
+    return out
 
 
 def _landing_report(raw):
