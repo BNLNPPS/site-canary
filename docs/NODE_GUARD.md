@@ -281,18 +281,24 @@ The readers, in the order a job meets them:
 - The wrapper, where the production system owns the pilot launch (the
   Perlmutter launcher, the npps0 pass script): reads the document
   before the pilot fetches a job and exits on an excluded node, so no
-  job is touched. The OSG pilot wrapper on the harvester submit host is
-  the same check, applied there as a separate operation with its dated
-  backup (swf-epicprod docs/OSG_SUBMISSION.md); until it is, the OSG
-  pool relies on the landing check.
+  job is touched.
+- Matchmaking, on the OSG pool: the pull pilots' submit descriptions
+  carry the attribute `EpicprodNodeGuard`, false on every node the live
+  document names for a `BNL_OSG_` queue, and their Requirements
+  reference it, so no new pilot is matched to an excluded node (since
+  2026-10-20; swf-epicprod `scripts/osg-node-guard-clause.py`, run every
+  five minutes on the submit host, docs/OSG_SUBMISSION.md, Excluding what
+  delivers nothing). A wrapper check would let the pilot land and exit,
+  and a pull pilot's slot would then take the next pilot at once.
 - The payload's landing check, everywhere: declines in seconds on an
   excluded node with exit 80, the node, queue, reason and trip time in
   the stage log and the report (swf-epicprod docs/EPICPROD_PAYLOAD.md,
   evolution item 10). A decline costs the job one attempt, and the
   guard's expiry bounds how many.
-- The Requirements clause of the OSG submit description (OSG_SUBMISSION
-  .md, Excluding what delivers nothing) stays the operator's lever for
-  a standing ban; the guard does not write it.
+- The operators' own node clause in the OSG submit descriptions'
+  Requirements (OSG_SUBMISSION.md, Excluding what delivers nothing)
+  stays their lever for a standing ban; the guard writes only its own
+  attribute beside it.
 
 A host is matched by its full name, or by its bare name when the record
 holds a bare name (the pool advertises both forms), and by queue when
@@ -330,5 +336,5 @@ healthy node one declined attempt per job until the exclusion expires.
    canary migration 0008). The queues page section.
 5. The published exclusion, the landing check, the wrapper check on
    the Perlmutter launcher and npps0, and live mode (done 2026-09-16);
-   the OSG pilot wrapper's check, a separate operation on the submit
-   host (open).
+   on the OSG pool, matchmaking in place of a wrapper check (done
+   2026-10-20).
