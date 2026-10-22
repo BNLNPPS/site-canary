@@ -318,19 +318,17 @@ def dispatch_payload_canary(now, task_name, queue_name, submit_script=None,
 
 def _did_available(dids):
     """Whether every DID has an available replica in JLab Rucio, read as
-    the eicprod account through the proxy the agent holds. None when the
-    catalog could not be read: unverified, never a failed check."""
+    the eicprod account by a token from the PanDA server, else through the
+    proxy the agent holds (swf_epicprod.jlab_auth). None when the catalog
+    could not be read: unverified, never a failed check."""
     import os
     if not dids:
         return None
-    proxy = os.environ.get('EVGEN_X509_PROXY')
-    if not proxy or not os.path.exists(proxy):
-        return None
     try:
-        from rucio.client import Client
+        from swf_epicprod.jlab_auth import rucio_client
         host = os.environ.get('JLAB_RUCIO_URL', 'https://rucio-server.jlab.org:443')
-        client = Client(rucio_host=host, auth_host=host, account='eicprod',
-                        auth_type='x509_proxy', creds={'client_proxy': proxy})
+        client = rucio_client(account='eicprod', host=host,
+                              proxy=os.environ.get('EVGEN_X509_PROXY') or None)
         wanted = [{'scope': 'epic', 'name': d} for d in dids]
         available = set()
         for rep in client.list_replicas(wanted, all_states=True):

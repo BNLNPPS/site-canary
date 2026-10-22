@@ -64,13 +64,14 @@ RC_TIMEOUT = 124
 RC_NO_CLIENT = 127
 
 
-def run_command(command, timeout_s, stdin_text=None):
+def run_command(command, timeout_s, stdin_text=None, env=None):
     """(rc, text) from a command: rc 124 when it gives no answer in
     time, 127 when the client is not on the path, so neither is taken
-    for an answer from the door."""
+    for an answer from the door. ``env`` replaces the environment when
+    given (a door's credential)."""
     try:
         proc = subprocess.run(command, capture_output=True, text=True,
-                              timeout=timeout_s, input=stdin_text)
+                              timeout=timeout_s, input=stdin_text, env=env)
     except subprocess.TimeoutExpired:
         return RC_TIMEOUT, f"no answer in {timeout_s}s"
     except OSError as exc:
@@ -211,13 +212,15 @@ def _step(run, command, timeout_s):
     }
 
 
-def probe_door(door, path, timeout_s=None, run=None, size_bytes=1024):
+def probe_door(door, path, timeout_s=None, run=None, size_bytes=1024, env=None):
     """Write a small file at the door, stat it, delete it, and return
     the reading. One cycle, no retries: a door that is down sees one
     touch and never a storm. The stat and the delete are not attempted
-    when the write was refused — there is nothing there to find."""
+    when the write was refused — there is nothing there to find.
+    ``env`` is the environment the commands run with (the door's
+    credential), the process's own when not given."""
     timeout_s = timeout_s or DEFAULTS['timeout_s']
-    run = run or run_command
+    run = run or (lambda command, t, stdin_text=None: run_command(command, t, stdin_text, env=env))
     reading = {'door': door, 'path': path}
     handle, local = tempfile.mkstemp(prefix='canary-door-', suffix='.probe')
     try:

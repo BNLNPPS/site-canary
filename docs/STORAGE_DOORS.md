@@ -31,7 +31,11 @@ batch scheduling and a PanDA record, and this check needs none of them;
 it costs the queue wait that makes a probe's verdict late, and a door
 check that cannot run because its queue is starved is circular. The
 cycle runs on the production-operations agent, which holds the
-credential and stands where the registrar writes from.
+credential and stands where the registrar writes from. Since 2026-10-22
+it writes as production does: with a path-scoped storage token from the
+PanDA server over TLS at a door that takes one (BNL-XRD's write door),
+else with the JLab proxy (swf-epicprod `swf_epicprod/jlab_auth.py`);
+each reading records which (`credential`).
 
 The one thing a job would add is the site's own reachability — whether
 a Perlmutter node can reach the JLab door — and that is a site
