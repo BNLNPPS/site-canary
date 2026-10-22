@@ -284,8 +284,9 @@ def main(argv=None):
     p_payload.add_argument('--credential', choices=['x509', 'token', 'panda'], default='x509',
                            help='x509 ships the eicprod proxy (default); token '
                                 'ships no proxy and the CANARY_TOKEN_FILE token; '
-                                'panda ships no credential, only the tokens the '
-                                'job gets from the PanDA server')
+                                'panda ships an expired placeholder certificate, '
+                                'so the job has only the tokens it gets from the '
+                                'PanDA server')
     p_payload.add_argument('--sender', default='',
                            help='who sent the canary, recorded on the run')
     p_payload.add_argument('--json', action='store_true',
