@@ -192,6 +192,12 @@ submission that reached PanDA: a failed submission does not consume
 the interval and retries on the next dispatch cycle, and a queue with
 a run still awaiting its outcome is not probed again.
 
+The hosting application may supply `CANARY_CLOSED_QUEUES`, a Django setting
+mapping queue names to permanent admission-closure reasons. A closed queue
+cannot be enabled or receive a new scheduled or manually requested probe,
+including a payload canary. Collection of existing runs continues. SWF
+supplies its retired production destinations through this setting.
+
 `canary probe-dispatch [--queue NAME ...] [--collect-only] [--json]`
 collects the outcomes of open runs (below), then submits probes for
 due queues (or immediately for named queues) through the submission

@@ -13,13 +13,19 @@ logger = logging.getLogger('canary.probe')
 DEFAULT_INTERVAL_HOURS = 24.0
 
 
+def closed_queue_reason(name):
+    """Admission closures supplied by the hosting application."""
+    from django.conf import settings
+    return getattr(settings, 'CANARY_CLOSED_QUEUES', {}).get(name, '')
+
+
 def probe_config(queue):
     """The queue's probe configuration, defaults applied: a dict with
     ``enabled`` and ``interval_hours``. A queue with no probe block is
     not probed."""
     block = (queue.data or {}).get('probe') or {}
     return {
-        'enabled': bool(block.get('enabled', False)),
+        'enabled': bool(block.get('enabled', False)) and not closed_queue_reason(queue.name),
         'interval_hours': float(block.get('interval_hours',
                                           DEFAULT_INTERVAL_HOURS)),
         # A PCS task name makes the queue's scheduled probe a payload
@@ -143,6 +149,10 @@ def dispatch(now, queue_names=None, force=False, submit_cmd=None):
     if container:
         env['CANARY_CONTAINER_IMAGE'] = container
     for queue in targets:
+        reason = closed_queue_reason(queue.name)
+        if reason:
+            results.append({'queue': queue.name, 'outcome': 'closed', 'reason': reason})
+            continue
         payload_task = probe_config(queue)['payload_task']
         if payload_task:
             # The queue's probe is a payload canary of the named task.
@@ -228,6 +238,9 @@ def dispatch_payload_canary(now, task_name, queue_name, submit_script=None,
 
     from canary.store.models import ProbeRun, Queue
 
+    reason = closed_queue_reason(queue_name)
+    if reason:
+        return {'queue': queue_name, 'outcome': 'closed', 'reason': reason}
     queue = Queue.objects.filter(name=queue_name).first()
     if queue is None:
         return {'queue': queue_name, 'outcome': 'unknown queue'}

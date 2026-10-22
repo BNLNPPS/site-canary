@@ -97,6 +97,10 @@ def _apply_probe_config(queue, action, interval_raw, payload_task=None):
     """Set the queue's probe block; returns an error message or ''.
     ``payload_task`` names the PCS task whose payload canary is this
     queue's scheduled probe (empty: a landing probe; None: unchanged)."""
+    from canary.probe import closed_queue_reason
+    reason = closed_queue_reason(queue.name)
+    if action != 'disable' and reason:
+        return reason
     data = dict(queue.data or {})
     block = dict(data.get('probe') or {})
     if action == 'disable':

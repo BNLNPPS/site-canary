@@ -16,7 +16,7 @@
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 RELEASE="${SWF_MONITOR_RELEASE:-/opt/swf-monitor/current}"
-QUEUE="${1:-BNL_OSG_EPIC_PROD_1}"
+QUEUE="${1:-BNL_OSG_PanDA_1}"
 SPEC="${2:-${HERE}/spec.json}"
 QTAG="$(echo "${QUEUE}" | tr 'A-Z' 'a-z')"
 STAMP="$(date +%Y%m%d%H%M%S)"
