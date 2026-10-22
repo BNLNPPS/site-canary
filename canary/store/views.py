@@ -164,8 +164,8 @@ def _developer_settings(body):
         return {}, (f'A switch is EPICPROD_SWITCH_<NAME>=<value>, the value without '
                     f'spaces or shell characters: {bad[0][:80]}')
     credential = str(body.get('credential') or 'x509').strip()
-    if credential not in ('x509', 'token'):
-        return {}, 'The credential is x509 or token.'
+    if credential not in ('x509', 'token', 'panda'):
+        return {}, 'The credential is x509, token or panda.'
     try:
         threads = int(body.get('threads') or 0)
     except (TypeError, ValueError):

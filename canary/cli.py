@@ -281,9 +281,11 @@ def main(argv=None):
     p_payload.add_argument('--switch', action='append', default=[],
                            help='EPICPROD_SWITCH_<NAME>=<value> in the job '
                                 'environment; repeatable')
-    p_payload.add_argument('--credential', choices=['x509', 'token'], default='x509',
+    p_payload.add_argument('--credential', choices=['x509', 'token', 'panda'], default='x509',
                            help='x509 ships the eicprod proxy (default); token '
-                                'ships no proxy and the CANARY_TOKEN_FILE token')
+                                'ships no proxy and the CANARY_TOKEN_FILE token; '
+                                'panda ships no credential, only the tokens the '
+                                'job gets from the PanDA server')
     p_payload.add_argument('--sender', default='',
                            help='who sent the canary, recorded on the run')
     p_payload.add_argument('--json', action='store_true',

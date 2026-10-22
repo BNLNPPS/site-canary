@@ -309,7 +309,9 @@ the job's environment; no other key is accepted, and a value carries no
 spaces or shell characters. `--credential token` ships no proxy and
 ships the token file the agent names in `CANARY_TOKEN_FILE` as
 `BEARER_TOKEN_FILE`; without one configured the submission is refused
-with that reason. The run records the source, the commit the doer
+with that reason. `--credential panda` ships no credential and empties
+`X509_USER_PROXY`, so the job has only the tokens it gets from the
+PanDA server. The run records the source, the commit the doer
 resolved and the sender, because the code runs with the production
 credential.
 

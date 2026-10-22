@@ -206,8 +206,8 @@
                  title="Empty: the deployed payload. pr:&lt;N&gt; for a pull request, &lt;branch&gt;, or &lt;owner&gt;:&lt;branch&gt; for a fork's branch of swf-epicprod" {% if not operable %}disabled{% endif %}></label>
         <label class="small">Credential
           <select name="credential" class="form-select form-select-sm d-inline-block" style="width: auto;"
-                  title="x509 ships the eicprod proxy as production does; token ships no proxy and the canary token file as BEARER_TOKEN_FILE" {% if not operable %}disabled{% endif %}>
-            <option value="x509">x509</option><option value="token">token only</option>
+                  title="x509 ships the eicprod proxy as production does; token ships no proxy and the canary token file as BEARER_TOKEN_FILE; PanDA tokens only ships no credential, so the job has only the tokens it gets from the PanDA server" {% if not operable %}disabled{% endif %}>
+            <option value="x509">x509</option><option value="token">token only</option><option value="panda">PanDA tokens only</option>
           </select></label>
         <label class="small">Threads
           <input type="number" name="threads" min="0" max="64" placeholder="1" class="form-control form-control-sm d-inline-block" style="width: 5em;"
