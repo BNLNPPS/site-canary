@@ -292,8 +292,12 @@ acceptance run of a payload change.
 production submit doer in its canary mode (`submit-evgen-task.py
 --canary-stamp --canary-queue`): the task's first manifest row alone,
 under the canary account, processing type canary, one job, one
-attempt, output dataset `group.EIC.canary.<queue>.<stamp>`, and the
-runner's `payload-canary` mode as the exec. `--threads N` requests N
+attempt, task priority 1000 (above the production band, so the job is
+dispatched ahead of the queue's production backlog; at its PCS task's
+priority it waited behind every older production job of that priority,
+16 hours on BNL_OSG_PanDA_1 on 2026-10-24), output dataset
+`group.EIC.canary.<queue>.<stamp>`, and the runner's `payload-canary`
+mode as the exec. `--threads N` requests N
 cores and runs npsim and eicrecon with N threads where the image
 supports it (swf-epicprod EPICPROD_PAYLOAD.md, Multithreading); the run
 records the count. The run is a `ProbeRun`
