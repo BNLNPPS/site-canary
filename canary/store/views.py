@@ -7,6 +7,7 @@ access policy (docs/SWF_INTEGRATION.md).
 import logging
 import re
 
+from django.conf import settings
 from django.shortcuts import render
 
 from ..assessor.run import format_duration
@@ -23,6 +24,11 @@ def canary_page(request):
     swf-remote proxy) resolve it under their own prefix."""
     from django.http import HttpResponseRedirect
     return HttpResponseRedirect('probes/')
+
+
+def _current_queues():
+    """Queues visible in current operations; closed records remain stored."""
+    return Queue.objects.exclude(name__in=getattr(settings, 'CANARY_CLOSED_QUEUES', {}))
 
 
 def _health_context():
@@ -49,7 +55,7 @@ def _health_context():
     except PolicyError as exc:
         policy_error = str(exc)
         logger.error('Canary policy configuration error: %s', exc)
-    queues = list(Queue.objects.exclude(
+    queues = list(_current_queues().exclude(
         name__icontains='test').select_related('site'))
     latest = {}
     for sample in PassiveSample.objects.order_by('queue_id', '-window_end'):
@@ -316,19 +322,20 @@ def probes_page(request):
             'runs_count': queue.probe_runs.count(),
         })
     enabled_ids = {row['queue'].id for row in rows}
-    candidates = [q for q in Queue.objects.order_by('name')
+    candidates = [q for q in _current_queues().order_by('name')
                   if q.id not in enabled_ids
                   and 'test' not in q.name.lower()]
     context = _health_context()
     payload_runs = [
         _payload_row(run) for run in
         ProbeRun.objects.filter(data__kind='payload')
+        .exclude(queue__name__in=getattr(settings, 'CANARY_CLOSED_QUEUES', {}))
         .select_related('queue').order_by('-submitted_at')[:30]]
     context.update({
         'rows': rows,
         'candidates': candidates,
         'payload_runs': payload_runs,
-        'all_queues': list(Queue.objects.order_by('name')),
+        'all_queues': list(_current_queues().order_by('name')),
         'operable': _probe_writes_operable(request),
         # A just-queued Run now: the page waits on the agent's completion
         # event for this queue and reloads to show the run's outcome.

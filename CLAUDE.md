@@ -11,8 +11,8 @@ the node guard, the measurement store and the canary page (`README.md`).
   for what is built (probes, payload canaries, the canary page), and
   SWF_INTEGRATION for how it runs inside swf-monitor (the canary agent,
   its store and its page).
-- Developed on `main`. It reaches production with the swf-monitor full
-  deploy, which installs it from the local tree, so a change takes effect
-  at the next full deploy.
+- Developed on `main`. The swf-monitor lightweight UI deploy syncs web
+  views and templates only. Other changes reach production with the full
+  deploy, which installs the package from the local tree.
 - Tests: `bash tests/run_tests.sh`, in an environment with the package's
   dependencies (the swf-testbed venv).
