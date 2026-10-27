@@ -374,6 +374,31 @@ def test_fixed_time_kill_trips_under_the_floor_and_slow():
     assert out['tripped'] == [(Q, 'voh5')]
 
 
+def test_registration_failures_are_not_a_fixed_time_kill():
+    # n391 at GREX, 2026-10-27: 24 jobs of task 41310 failed at output
+    # registration (exit 78) at the end of whole ~2 h runs, nothing
+    # finished there, the task finishing on other nodes.
+    G = 'UM_GREX_PanDA_1'
+    rows = [{'queue': G, 'host': 'n391', 'jobstatus': 'failed', 'jeditaskid': 41310,
+             'duration_s': 7200 + i * 12, 'endtime': i, 'error': 'pilot 1305', 'registration': True}
+            for i in range(24)]
+    rows += _rows('n400', finished=8, task=41310, queue=G, duration=7000)
+    out = guard.decide_nodes(rows, {G: 1012.0})
+    assert out['tripped'] == []
+    v = out['queues'][G]['nodes']['n391']
+    assert not v['evidence']['fixed_time'] and v['evidence']['registration_failed'] == 24
+    # without the registration mark the same deaths read as a fixed-time kill
+    out = guard.decide_nodes([dict(r, registration=False) for r in rows], {G: 1012.0})
+    assert out['tripped'] == [(G, 'n391')]
+    assert out['queues'][G]['nodes']['n391']['reason'] == guard.FIXED_TIME
+    # a node that kills at one time still trips with registration failures beside the kills
+    kills = [{'queue': G, 'host': 'n391', 'jobstatus': 'failed', 'jeditaskid': 41310,
+              'duration_s': 2400 + i * 15, 'endtime': 30 + i} for i in range(6)]
+    out = guard.decide_nodes(rows + kills, {G: 1012.0})
+    assert out['tripped'] == [(G, 'n391')]
+    assert out['queues'][G]['nodes']['n391']['reason'] == guard.FIXED_TIME
+
+
 def test_burst_is_the_queues_event_not_the_big_nodes():
     # task 39973, 2026-09-15: 443 deaths on 412 hosts of BNL_OSG_PanDA_1
     # inside four minutes (the input file gone from the door); most hosts

@@ -14,7 +14,9 @@ missing ``queue``, ``host`` or ``jobstatus`` is malformed and counted,
 never silently dropped. Optional, carried into the evidence when
 present: ``site`` (the execute site the caller resolved, the actual
 site behind a pool queue), ``pandaid``, and ``error`` (the failure's
-error label as the caller composed it, e.g. ``pilot 1305``).
+error label as the caller composed it, e.g. ``pilot 1305``). Optional
+and read: ``registration``, true for a failure at output registration
+(the payload's exit 78), which the fixed-time reading sets aside.
 """
 
 DEFAULTS = {
@@ -221,7 +223,8 @@ def decide_nodes(rows, calibration, settings=None, finished_elsewhere=None):
         h.append({'status': status, 'task': row.get('jeditaskid'),
                   'duration_s': row.get('duration_s'), 'endtime': row.get('endtime'),
                   'site': row.get('site') or '', 'pandaid': row.get('pandaid'),
-                  'error': row.get('error') or ''})
+                  'error': row.get('error') or '',
+                  'registration': bool(row.get('registration'))})
         if status == 'finished' and row.get('jeditaskid') is not None:
             _note_finish(q['finished_tasks'], row['jeditaskid'], host, row.get('endtime'))
 
@@ -426,13 +429,22 @@ def _judge(host, entries, finished_tasks, finishing_hosts, median, fast_under, c
     p10, p90 = _pct(durations, 0.1), _pct(durations, 0.9)
     spread = round(p90 / p10, 3) if (p10 and p90) else None
     # The fixed-time kill: nothing finished, every failure at one time.
-    fixed_time = (finished == 0 and len(failed) >= cfg['fixed_min_jobs']
-                  and len(durations) >= cfg['fixed_min_jobs']
-                  and spread is not None and spread <= cfg['fixed_time_ratio'])
+    # A failure at output registration is set aside from this reading: it
+    # comes at the end of a whole run, so a task's jobs of one length that
+    # fail to register die at one time on every node (task 41310 at GREX,
+    # 2026-10-27: n348, n377 and n391 excluded on exit 78 at ~2 h).
+    killed = sorted(float(e['duration_s']) for e in failed
+                    if e.get('duration_s') is not None and not e.get('registration'))
+    registration = sum(1 for e in failed if e.get('registration'))
+    k10, k90 = _pct(killed, 0.1), _pct(killed, 0.9)
+    killed_spread = round(k90 / k10, 3) if (k10 and k90) else None
+    fixed_time = (finished == 0 and len(killed) >= cfg['fixed_min_jobs']
+                  and killed_spread is not None and killed_spread <= cfg['fixed_time_ratio'])
     evidence = {
         'site': site, 'sites': sorted(sites),
         'failed_duration_s': {'p10': p10, 'median': _pct(durations, 0.5), 'p90': p90},
         'duration_spread': spread, 'fixed_time': fixed_time,
+        'registration_failed': registration,
         'error_codes': error_codes, 'sample_jobs': sample_jobs,
         'tasks_finished_elsewhere_hosts': elsewhere_hosts,
         'jobs': n, 'failed': len(failed), 'finished': finished,

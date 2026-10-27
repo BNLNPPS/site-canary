@@ -131,6 +131,17 @@ finished 4,996 jobs elsewhere at 2.8 GB; at 40 minutes against the
 queue's 17-minute median the deaths were not fast, and seven was under
 the floor.
 
+The fixed-time reading sets aside failures at output registration
+(payload exit 78, whatever label the pilot gives them): a job that fails
+to register has run its whole length, so a task's jobs of one length die
+at one time on every node that runs them when registration fails. These
+failures still count toward the standard reading and in the evidence
+(`registration_failed`). The case that named it: on 2026-10-27 task
+41310's ~2 h jobs at UM_GREX_PanDA_1 failed registration to BNL-XRD
+intermittently on many hosts, and n348, n377 and n391 were excluded as
+fixed-time kills on those failures alone, while the door was up. They
+were cleared on Torre's decision.
+
 A node under the job floor is judged for the fixed-time kill only and
 listed only when it trips. A node whose failures are not fast and not
 at one time, or whose tasks finish nowhere on the queue or fail on its
