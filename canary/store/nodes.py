@@ -42,7 +42,8 @@ def transition(current, reading, now, expiry_h):
     reason = str(reading.get('reason') or '')
     finished = int(reading.get('finished') or 0)
     fast_failed = int(reading.get('fast_failed') or 0)
-    expiry = timedelta(hours=float(expiry_h))
+    # A reading may carry its own latch (the outlier's, outlier_expiry_h).
+    expiry = timedelta(hours=float(reading.get('expiry_h') or expiry_h))
 
     def keep():
         return ({'status': status, 'opened_at': opened_at, 'expires_at': expires_at,

@@ -142,6 +142,29 @@ intermittently on many hosts, and n348, n377 and n391 were excluded as
 fixed-time kills on those failures alone, while the door was up. They
 were cleared on Torre's decision.
 
+A third reading, after the fixed-time kill: the **outlier**. A node not
+tripped by either reading that fails `outlier_fraction` (0.5) of its jobs
+or more, from `outlier_min_failures` (20) failures, at least
+`outlier_ratio` (5) times the failed share of its queue's other nodes
+(floored at `outlier_floor`, 0.02), whatever the speed of its deaths, its
+tasks finishing elsewhere as in the standard reading and its deaths
+outside the queue's bursts, is a black hole for a short latch,
+`outlier_expiry_h` (2 h) in place of `expiry_h`, since such a node also
+finishes work between its bursts. Failures at output registration are set
+aside, as in the fixed-time reading. The case that named it: GREX's n388
+from 18:00 to 22:00 ET on 2026-10-28 failed 632 jobs and finished 359, at
+full length (pilot 1305, "unshare: No space left on device"), while the
+other GREX nodes failed about 5%; neither the standard reading (fast
+failures) nor the fixed-time kill (nothing finished) could trip it. Over
+the seven days to 2026-10-29 (673,124 jobs, `scripts/node-guard-backtest.py`
+in swf-monitor) it trips n388 in that burst's two worst windows and four
+OSG pool hosts for a few hours each, every one failing about two thirds
+of its jobs against 1 to 6% on its queue.
+
+The landing check's declines on an excluded node (exit 80) are set aside
+before judgment and counted (`declined`): they are the guard's own action,
+and read as the node's failures they would reopen it at its expiry.
+
 A node under the job floor is judged for the fixed-time kill only and
 listed only when it trips. A node whose failures are not fast and not
 at one time, or whose tasks finish nowhere on the queue or fail on its
@@ -233,6 +256,11 @@ visible on the System page:
 | `node_guard.storm_minutes` | 5 | the interval of the burst reading |
 | `node_guard.fixed_min_jobs` | 5 | the failure floor of the fixed-time kill |
 | `node_guard.fixed_time_ratio` | 1.2 | the failures' 90th over 10th percentile duration, at most, for a fixed-time kill |
+| `node_guard.outlier_min_failures` | 20 | the failure floor of the outlier reading |
+| `node_guard.outlier_fraction` | 0.5 | the outlier's failed share of its jobs, at least |
+| `node_guard.outlier_ratio` | 5 | the outlier's failed share over its queue's other nodes', at least |
+| `node_guard.outlier_floor` | 0.02 | the floor of the other nodes' failed share in that ratio |
+| `node_guard.outlier_expiry_h` | 2 | an outlier's black hole life before half open |
 | `node_guard.not_nodes` | the harvester and OSG submit hosts | hosts that are not worker nodes |
 | `node_guard.expiry_h` | 24 | a black hole's life before half open |
 

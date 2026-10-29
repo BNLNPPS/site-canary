@@ -29,11 +29,17 @@ DEFAULTS = {
     'not_nodes': (),
     'fixed_min_jobs': 5,
     'fixed_time_ratio': 1.2,
+    'outlier_min_failures': 20,
+    'outlier_fraction': 0.5,
+    'outlier_ratio': 5.0,
+    'outlier_floor': 0.02,
+    'outlier_expiry_h': 2,
 }
 
 # Reason codes, one per outcome of the decision.
 BLACK_HOLE = 'black_hole'
 FIXED_TIME = 'fixed_time'
+OUTLIER = 'outlier'
 BELOW_FLOOR = 'below_floor'
 FAILED_FRACTION = 'failed_fraction'
 NOT_FAST = 'not_fast'
@@ -141,7 +147,9 @@ def _settings(settings):
     out['storm_nodes'] = max(1, int(out['storm_nodes']))
     out['storm_minutes'] = max(1, int(out['storm_minutes']))
     out['fixed_min_jobs'] = max(2, int(out['fixed_min_jobs']))
-    for key in ('failed_fraction', 'fast_fraction', 'fast_ratio', 'fixed_time_ratio'):
+    out['outlier_min_failures'] = max(1, int(out['outlier_min_failures']))
+    for key in ('failed_fraction', 'fast_fraction', 'fast_ratio', 'fixed_time_ratio',
+                'outlier_fraction', 'outlier_ratio', 'outlier_floor', 'outlier_expiry_h'):
         out[key] = float(out[key])
     out['not_nodes'] = tuple(normalize_host(h) for h in (out['not_nodes'] or ()) if h)
     return out
@@ -205,6 +213,7 @@ def decide_nodes(rows, calibration, settings=None, finished_elsewhere=None):
     calibration = calibration or {}
     per_queue = {}
     malformed = 0
+    declined = 0
     jobs = 0
     for row in rows or ():
         queue = (row or {}).get('queue')
@@ -212,6 +221,11 @@ def decide_nodes(rows, calibration, settings=None, finished_elsewhere=None):
         status = (row or {}).get('jobstatus')
         if not queue or not host or status not in ('finished', 'failed'):
             malformed += 1
+            continue
+        if row.get('declined'):
+            # The landing check's decline on an excluded node is the
+            # guard's own action, never evidence about the node.
+            declined += 1
             continue
         jobs += 1
         q = per_queue.setdefault(queue, {'hosts': {}, 'finished_tasks': {}, 'not_nodes': {}})
@@ -292,6 +306,22 @@ def decide_nodes(rows, calibration, settings=None, finished_elsewhere=None):
                     queue_failing = True
                     continue
                 q_tripped.append(host)
+            elif _outlier(verdict['evidence'], others_n, others_fraction, cfg) \
+                    and not _in_bursts(entries, bursts, cfg):
+                # The outlier: a node failing far more of its work than the
+                # rest of its queue, whatever the speed of its deaths, its
+                # tasks finishing elsewhere. Its latch is short
+                # (outlier_expiry_h), since such a node also finishes work
+                # between its bursts. The case that named it: GREX n388,
+                # 2026-10-28 18:00-22:00 ET, 632 failed and 359 finished at
+                # full length (pilot 1305, "unshare: No space left on
+                # device") while the other GREX nodes failed about 5%.
+                verdict['state'] = 'tripped'
+                verdict['reason'] = OUTLIER
+                verdict['evidence']['outlier_ratio'] = round(
+                    verdict['evidence']['failed_fraction'] / max(others_fraction, cfg['outlier_floor']), 1)
+                verdict['expiry_h'] = cfg['outlier_expiry_h']
+                q_tripped.append(host)
         storm = len(q_tripped) > cfg['storm_nodes']
         if storm:
             for host in q_tripped:
@@ -313,8 +343,25 @@ def decide_nodes(rows, calibration, settings=None, finished_elsewhere=None):
             'not_nodes': q['not_nodes'], 'nodes': nodes,
         }
     return {'queues': out_queues, 'tripped': tripped, 'judged': judged_total,
-            'hosts': hosts_total, 'jobs': jobs, 'malformed': malformed,
+            'hosts': hosts_total, 'jobs': jobs, 'malformed': malformed, 'declined': declined,
             'settings': cfg}
+
+
+def _outlier(ev, others_n, others_fraction, cfg):
+    """A node failing ``outlier_fraction`` of its jobs or more, at least
+    ``outlier_ratio`` times its queue's other nodes (floored at
+    ``outlier_floor``), from ``outlier_min_failures`` failures, with the
+    attribution of the standard reading: a task it failed finished on
+    another node of the queue after its first failure. Failures at output
+    registration are set aside, as in the fixed-time reading: they are the
+    storage path's (task 41310 at GREX, 2026-10-27)."""
+    own = ev['failed'] - ev.get('registration_failed', 0)
+    fraction = own / ev['jobs'] if ev['jobs'] else 0.0
+    return (own >= cfg['outlier_min_failures']
+            and fraction >= cfg['outlier_fraction']
+            and others_n >= cfg['min_jobs']
+            and fraction >= cfg['outlier_ratio'] * max(others_fraction, cfg['outlier_floor'])
+            and bool(ev['tasks_finished_elsewhere']))
 
 
 def _note_finish(finished_tasks, task, host, end):

@@ -451,6 +451,28 @@ def test_burst_is_the_queues_event_not_the_big_nodes():
     assert guard._seconds('not a time') is None and guard._seconds(None) is None
 
 
+def test_outlier_node_trips_with_a_short_latch():
+    # n388 at GREX, 2026-10-28 18:00-22:00 ET: most of its jobs failed at
+    # full length while the other GREX nodes failed about 5%.
+    G = 'UM_GREX_PanDA_1'
+    rows = _rows('n388', failed=63, finished=36, task=41500, queue=G, duration=2400)
+    rows += _rows('n389', failed=4, finished=40, task=41500, queue=G, duration=2400)
+    rows += _rows('n390', failed=3, finished=40, task=41500, queue=G, duration=2400)
+    out = guard.decide_nodes(rows, {G: 1800.0})
+    assert out['tripped'] == [(G, 'n388')]
+    v = out['queues'][G]['nodes']['n388']
+    assert v['reason'] == guard.OUTLIER and v['expiry_h'] == 2.0
+    assert v['evidence']['outlier_ratio'] >= 5
+    # the same node beside a queue failing a fifth of its work elsewhere is no outlier
+    busy = rows[:99] + _rows('n389', failed=9, finished=35, task=41500, queue=G, duration=2400) \
+        + _rows('n390', failed=9, finished=34, task=41500, queue=G, duration=2400)
+    assert guard.decide_nodes(busy, {G: 1800.0})['tripped'] == []
+    # the landing check's declines on an excluded node are set aside
+    declines = [dict(r, declined=True) for r in rows if r['host'] == 'n388' and r['jobstatus'] == 'failed']
+    out = guard.decide_nodes(declines + [r for r in rows if r['host'] != 'n388'], {G: 1800.0})
+    assert out['tripped'] == [] and out['declined'] == 63
+
+
 if __name__ == '__main__':
     names = [n for n in dir() if n.startswith('test_')]
     failed = 0
