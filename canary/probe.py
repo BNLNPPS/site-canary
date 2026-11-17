@@ -720,11 +720,11 @@ def _collect_one(run_row, jobs, tasks, metadata, ingest_report, IngestError,
     # Keep observed payload failure separate from the pilot's final exit.
     # A signal handler can hang until the pilot kills the job at maxtime.
     digest = _digest(job.get('jobmetrics'))
-    if digest.get('payloadFatalSignal') in ('6', '7', '8', '11'):
+    if digest.get('fatal_signal') in ('6', '7', '8', '11'):
         data['fatal'] = {
-            'signal': int(digest['payloadFatalSignal']),
-            'stage': digest.get('payloadFatalStage', ''),
-            'terminated': digest.get('payloadFatalStalled') == '1',
+            'signal': int(digest['fatal_signal']),
+            'stage': digest.get('fatal_stage', ''),
+            'terminated': digest.get('fatal_stalled') == '1',
             'source': 'job_digest',
         }
     # When PanDA was last read for this run: what a page may call fresh.
@@ -791,13 +791,11 @@ def _collect_one(run_row, jobs, tasks, metadata, ingest_report, IngestError,
 
 def _digest(jobmetrics):
     """The payload digest the pilot carries in the job metrics string
-    (EPICPROD_PAYLOAD.md, the report): the payload* tokens as a dict."""
-    out = {}
-    for token in str(jobmetrics or '').split():
-        key, sep, value = token.partition('=')
-        if sep and key.startswith('payload'):
-            out[key] = value
-    return out
+    (EPICPROD_PAYLOAD.md, the report), by field: the short names written
+    now and the long names of older jobs read alike (swf-epicprod
+    payload/metric_keys.py)."""
+    from swf_epicprod.payload.metric_keys import parse
+    return parse(str(jobmetrics or ''))
 
 
 # Pilot errors raised after the payload has exited: the stage-out of the
@@ -813,7 +811,7 @@ def _payload_ran(job):
     came after the payload."""
     digest = _digest(job.get('jobmetrics'))
     pilot_error = int(job.get('piloterrorcode') or 0)
-    return (digest.get('payloadExit', '') != ''
+    return (digest.get('exit', '') != ''
             and not int(job.get('exeerrorcode') or 0)
             and (not pilot_error or pilot_error in PILOT_ERRORS_AFTER_PAYLOAD))
 
@@ -825,7 +823,7 @@ def _collect_payload_from_digest(run_row, job, data, ProbeRun, counts):
     finished jobs only."""
     digest = _digest(job.get('jobmetrics'))
     try:
-        rc = int(digest.get('payloadExit'))
+        rc = int(digest.get('exit'))
     except (TypeError, ValueError):
         rc = None
     after = (f"ddm {job.get('ddmerrorcode')}: {job.get('ddmerrordiag') or ''}"[:300]
@@ -835,10 +833,10 @@ def _collect_payload_from_digest(run_row, job, data, ProbeRun, counts):
                else {'state': 'degraded', 'reason': after})
     data.update({
         'report': 'digest',
-        'payload_version': digest.get('payloadVersion', ''),
+        'payload_version': digest.get('version', ''),
         'payload_exit_code': rc,
-        'payload_stage': digest.get('payloadStage', ''),
-        'events_processed': int(digest['payloadEvents']) if digest.get('payloadEvents', '').isdigit() else None,
+        'payload_stage': digest.get('stage', ''),
+        'events_processed': int(digest['events']) if digest.get('events', '').isdigit() else None,
         'checks': checks,
         'verdict': verdict,
         'collect_note': f'payload outcome from the job digest; {after}',
