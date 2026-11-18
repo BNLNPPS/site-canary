@@ -13,6 +13,7 @@ from django.shortcuts import render
 from ..assessor.run import format_duration
 from ..config import POLICY_PATH
 from ..policy.loader import PolicyError, load_policy
+from ..probe import probe_health
 from .models import PassiveSample, ProbeRun, Queue
 
 logger = logging.getLogger('canary.store.views')
@@ -301,9 +302,7 @@ def probes_page(request):
     for queue in probe_mod.configured_queues():
         config = probe_mod.probe_config(queue)
         last = probe_mod.last_run(queue)
-        completed = (probe_mod.probe_runs(queue, config)
-                     .exclude(status=ProbeRun.Status.SUBMITTED)
-                     .order_by('-submitted_at').first())
+        completed = probe_mod.last_completed_run(queue, config)
         health, health_reason = _probe_health(completed)
         phase, phase_state = _run_phase(last)
         rows.append({
@@ -344,36 +343,9 @@ def probes_page(request):
     return render(request, 'canary/probes.html', context)
 
 
-def _probe_health(run):
-    """A queue's probe health: what its last completed probe delivered,
-    in the canary state vocabulary, with the reason for the cell title.
-    A failed submission never reached the site and says nothing about
-    it."""
-    if run is None:
-        return 'unknown', 'no completed probe'
-    data = run.data or {}
-    if data.get('kind') == 'payload' and run.status == ProbeRun.Status.COLLECTED:
-        # A payload canary's health is its verdict (Payload canaries).
-        verdict = data.get('verdict') or {}
-        return (verdict.get('state') or 'unknown',
-                verdict.get('reason') or 'collected without a verdict')
-    if run.status == ProbeRun.Status.COLLECTED:
-        kit = data.get('kit_exit_code')
-        if kit in (0, '0'):
-            return 'healthy', 'landing report collected, kit exit 0'
-        return 'degraded', f'landing report collected, kit exit {kit}'
-    if run.status == ProbeRun.Status.FINISHED:
-        return 'degraded', (data.get('collect_note')
-                            or 'finished without a landing report')
-    if run.status == ProbeRun.Status.FAILED:
-        errors = data.get('errors') or {}
-        first = next(iter(errors.values()), None) or {}
-        reason = (first.get('diag') or data.get('task_status')
-                  or 'probe job failed')
-        return 'failing', str(reason)[:200]
-    if run.status == ProbeRun.Status.FAILED_SUBMIT:
-        return 'unknown', 'last submission failed; no probe reached the site'
-    return 'unknown', str(run.status)
+# A queue's probe health is read in one place (canary.probe.probe_health),
+# by this page and by the front's feed guard alike.
+_probe_health = probe_health
 
 
 def _run_phase(run):

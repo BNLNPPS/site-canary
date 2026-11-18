@@ -59,6 +59,49 @@ def last_run(queue):
     return probe_runs(queue).order_by('-submitted_at').first()
 
 
+def last_completed_run(queue, config=None, since=None):
+    """The queue's most recent probe run with an outcome (no longer
+    submitted), submitted at or after ``since`` when given, else None."""
+    from canary.store.models import ProbeRun
+    runs = probe_runs(queue, config).exclude(status=ProbeRun.Status.SUBMITTED)
+    if since is not None:
+        runs = runs.filter(submitted_at__gte=since)
+    return runs.order_by('-submitted_at').first()
+
+
+def probe_health(run):
+    """A queue's probe health: what its last completed probe delivered,
+    in the canary state vocabulary, with the reason for the cell title.
+    A failed submission never reached the site and says nothing about
+    it. The canary page and the front's feed guard both read it here."""
+    from canary.store.models import ProbeRun
+    if run is None:
+        return 'unknown', 'no completed probe'
+    data = run.data or {}
+    if data.get('kind') == 'payload' and run.status == ProbeRun.Status.COLLECTED:
+        # A payload canary's health is its verdict (Payload canaries).
+        verdict = data.get('verdict') or {}
+        return (verdict.get('state') or 'unknown',
+                verdict.get('reason') or 'collected without a verdict')
+    if run.status == ProbeRun.Status.COLLECTED:
+        kit = data.get('kit_exit_code')
+        if kit in (0, '0'):
+            return 'healthy', 'landing report collected, kit exit 0'
+        return 'degraded', f'landing report collected, kit exit {kit}'
+    if run.status == ProbeRun.Status.FINISHED:
+        return 'degraded', (data.get('collect_note')
+                            or 'finished without a landing report')
+    if run.status == ProbeRun.Status.FAILED:
+        errors = data.get('errors') or {}
+        first = next(iter(errors.values()), None) or {}
+        reason = (first.get('diag') or data.get('task_status')
+                  or 'probe job failed')
+        return 'failing', str(reason)[:200]
+    if run.status == ProbeRun.Status.FAILED_SUBMIT:
+        return 'unknown', 'last submission failed; no probe reached the site'
+    return 'unknown', str(run.status)
+
+
 def last_submitted_run(queue):
     """The most recent probe run that actually reached PanDA — the
     schedule anchor. A failed submission never consumes the interval; it
