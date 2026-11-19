@@ -1,0 +1,16 @@
+{
+  "outDS": "group.EIC.canary.instant.%QTAG%.%STAMP%",
+  "exec": "echo canary-instant-payload",
+  "site": "%QUEUE%",
+  "prodSourceLabel": "test",
+  "taskPriority": 951,
+  "processingType": "canary",
+  "userName": "canary",
+  "nJobs": 1,
+  "nCore": 1,
+  "memory": 2048,
+  "walltimeHours": 0.084,
+  "skipScout": true,
+  "maxAttempt": 1,
+  "containerImage": "/cvmfs/singularity.opensciencegrid.org/eicweb/eic_xl:26.07.3-stable"
+}

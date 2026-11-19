@@ -230,6 +230,15 @@ with processing type `canary`. The task allows one job attempt
 (`maxAttempt` 1): a failed landing is a failed probe, not a job PanDA
 retries until the signal is lost.
 
+`canary/probe_kit/spec-instant.json` is a probe whose payload ends at
+once (`echo`), submitted by hand with `bash canary/probe_kit/run.sh
+QUEUE canary/probe_kit/spec-instant.json`. It carries no landing report
+and records no `ProbeRun`; the job's start and end times show how long
+the queue's pilot takes to see an instant payload end. On 18 November
+2026 the direct pilot took ten minutes on GREX and JLab and ten seconds
+on OSG (swf-epicprod NATIVE_PILOT_CANARY.md, The memory monitor's
+payload search).
+
 ### Collection
 
 Collection (`canary.probe.collect_run_outcomes`) brings every open run
