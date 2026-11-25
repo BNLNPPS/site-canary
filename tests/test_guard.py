@@ -473,6 +473,20 @@ def test_outlier_node_trips_with_a_short_latch():
     assert out['tripped'] == [] and out['declined'] == 63
 
 
+def test_glidein_loss_is_set_aside():
+    # NotreDame behind BNL_OSG_PanDA_1, 2026-11-23: jobs lost when the
+    # glidein went away (evicted, or its 40-minute reconnect lease expired)
+    # read as a fixed-time kill on the host; the batch layer's loss is not
+    # the node's work.
+    rows = [{'queue': Q, 'host': 'd12chas549.crc.nd.edu', 'jobstatus': 'failed', 'jeditaskid': 42156,
+             'duration_s': 2400 + i * 15, 'endtime': i} for i in range(7)]
+    rows += _rows('other.node', finished=2, task=42156)
+    assert guard.decide_nodes(rows, {Q: 17 * 60.0})['tripped'] == [(Q, 'd12chas549.crc.nd.edu')]
+    lost = [dict(r, glidein_lost=True) for r in rows[:7]] + rows[7:]
+    out = guard.decide_nodes(lost, {Q: 17 * 60.0})
+    assert out['tripped'] == [] and out['glidein_lost'] == 7 and out['jobs'] == 2
+
+
 if __name__ == '__main__':
     names = [n for n in dir() if n.startswith('test_')]
     failed = 0

@@ -165,6 +165,17 @@ The landing check's declines on an excluded node (exit 80) are set aside
 before judgment and counted (`declined`): they are the guard's own action,
 and read as the node's failures they would reopen it at its expiry.
 
+A job whose batch worker went away under it is set aside the same way and
+counted (`glidein_lost`): the record's taskbuffer error 300, "The worker
+was cancelled while the job was running", with no pilot, payload or
+transformation code. The glidein was evicted or its reconnect lease
+expired; the pilot never reported, so nothing is known of the node's work.
+A node that kills its jobs leaves the pilot's or the payload's code (voh5,
+2026-09-14: pilot 1305, exit 139). The case that named it: on 2026-11-23,
+15 NotreDame hosts behind BNL_OSG_PanDA_1 were excluded on 179 such losses,
+their 40-minute "fixed run time" the reconnect lease, while task 42156
+finished 9,992 of its 10,000 jobs. They were cleared on Torre's decision.
+
 A node under the job floor is judged for the fixed-time kill only and
 listed only when it trips. A node whose failures are not fast and not
 at one time, or whose tasks finish nowhere on the queue or fail on its

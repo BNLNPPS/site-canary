@@ -16,7 +16,12 @@ present: ``site`` (the execute site the caller resolved, the actual
 site behind a pool queue), ``pandaid``, and ``error`` (the failure's
 error label as the caller composed it, e.g. ``pilot 1305``). Optional
 and read: ``registration``, true for a failure at output registration
-(the payload's exit 78), which the fixed-time reading sets aside.
+(the payload's exit 78), which the fixed-time reading sets aside;
+``declined``, the landing check's decline on an excluded node (exit 80);
+and ``glidein_lost``, a job whose batch worker went away under it with no
+code from the pilot, the payload or the transformation (the glidein
+evicted or its reconnect lease expired). The last two are set aside before
+judgment and counted.
 """
 
 DEFAULTS = {
@@ -214,6 +219,7 @@ def decide_nodes(rows, calibration, settings=None, finished_elsewhere=None):
     per_queue = {}
     malformed = 0
     declined = 0
+    glidein_lost = 0
     jobs = 0
     for row in rows or ():
         queue = (row or {}).get('queue')
@@ -226,6 +232,12 @@ def decide_nodes(rows, calibration, settings=None, finished_elsewhere=None):
             # The landing check's decline on an excluded node is the
             # guard's own action, never evidence about the node.
             declined += 1
+            continue
+        if row.get('glidein_lost'):
+            # The batch layer lost the job's worker (eviction, an expired
+            # reconnect lease): the glidein's fate, not the node's work.
+            # NotreDame, 2026-11-23: 15 hosts excluded on 179 such losses.
+            glidein_lost += 1
             continue
         jobs += 1
         q = per_queue.setdefault(queue, {'hosts': {}, 'finished_tasks': {}, 'not_nodes': {}})
@@ -344,7 +356,7 @@ def decide_nodes(rows, calibration, settings=None, finished_elsewhere=None):
         }
     return {'queues': out_queues, 'tripped': tripped, 'judged': judged_total,
             'hosts': hosts_total, 'jobs': jobs, 'malformed': malformed, 'declined': declined,
-            'settings': cfg}
+            'glidein_lost': glidein_lost, 'settings': cfg}
 
 
 def _outlier(ev, others_n, others_fraction, cfg):
