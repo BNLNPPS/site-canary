@@ -33,6 +33,10 @@ def probe_config(queue):
         # instead of a landing probe; its payload runs then anchor the
         # schedule and speak for its probe health.
         'payload_task': str(block.get('payload_task') or '').strip(),
+        # With a payload task, a count of events makes the canary an Event
+        # Service job in the queue's production shape over that many of the
+        # task's events, on the whole node (Payload canaries).
+        'es_events': int(block.get('es_events') or 0),
     }
 
 
@@ -196,13 +200,14 @@ def dispatch(now, queue_names=None, force=False, submit_cmd=None):
         if reason:
             results.append({'queue': queue.name, 'outcome': 'closed', 'reason': reason})
             continue
-        payload_task = probe_config(queue)['payload_task']
-        if payload_task:
+        config = probe_config(queue)
+        if config['payload_task']:
             # The queue's probe is a payload canary of the named task.
             results.append(dispatch_payload_canary(
-                now, payload_task, queue.name,
+                now, config['payload_task'], queue.name,
                 trigger=(ProbeRun.Trigger.MANUAL if force
-                         else ProbeRun.Trigger.AUTO)))
+                         else ProbeRun.Trigger.AUTO),
+                es_events=config['es_events']))
             continue
         run_row = ProbeRun.objects.create(
             queue=queue, submitted_at=now,
@@ -256,7 +261,7 @@ def dispatch_payload_canary(now, task_name, queue_name, submit_script=None,
                             signature='', pandaid=None, container='',
                             request_id='', trigger=None, threads=0,
                             payload_ref='', switches=(), credential='x509',
-                            sender=''):
+                            sender='', es_events=0):
     """Submit one payload canary through the production submit doer in
     its canary mode and record it as a ProbeRun of kind payload. Every
     failure is recorded on the run and returned, never raised.
@@ -272,7 +277,11 @@ def dispatch_payload_canary(now, task_name, queue_name, submit_script=None,
     ``payload_ref`` (pr:<N>, <branch> or <owner>:<branch>), its
     ``switches`` and its ``credential``; the run records them, the
     ``sender``, and the commit the doer resolved, since that code runs
-    with the production credential. All are recorded on the run."""
+    with the production credential. ``es_events`` makes it an Event
+    Service canary: that many of the task's events, a feeder's gun sample,
+    in the queue's production shape on the whole node, its verdict read
+    from the harness summary (``es_verdict``). All are recorded on the
+    run."""
     import os
     import re
     import subprocess
@@ -321,6 +330,8 @@ def dispatch_payload_canary(now, task_name, queue_name, submit_script=None,
         data['credential'] = credential
     if sender:
         data['sender'] = sender
+    if es_events:
+        data['es_events'] = int(es_events)
     run_row = ProbeRun.objects.create(
         queue=queue, submitted_at=now,
         trigger=trigger or ProbeRun.Trigger.MANUAL, data=data)
@@ -342,6 +353,8 @@ def dispatch_payload_canary(now, task_name, queue_name, submit_script=None,
         cmd += ['--canary-switch', switch]
     if credential and credential != 'x509':
         cmd += ['--canary-credential', credential]
+    if es_events:
+        cmd += ['--canary-es-events', str(int(es_events))]
     proxy = os.environ.get('EVGEN_X509_PROXY')
     if proxy:
         cmd += ['--proxy', proxy]
@@ -435,13 +448,91 @@ def payload_verdict(report):
                    'ok': available if available is not None else None,
                    'detail': (', '.join(dids)[:300] if dids else 'no DID registered')
                              + ('' if available is not None else ' (not verified)')})
+    return checks, _verdict(checks)
+
+
+def _verdict(checks):
+    """Healthy when no check failed, degraded with the first failure."""
     failed = [c for c in checks if c['ok'] is False]
     if failed:
-        verdict = {'state': 'degraded',
-                   'reason': f"{failed[0]['check']}: {failed[0]['detail'] or 'failed'}"}
+        return {'state': 'degraded',
+                'reason': f"{failed[0]['check']}: {failed[0]['detail'] or 'failed'}"}
+    return {'state': 'healthy', 'reason': 'all checks passed'}
+
+
+def es_verdict(es, credited, offered):
+    """The checklist verdict of an Event Service canary: (checks, verdict)
+    from the harness summary the job report carries under ``es`` (swf-monitor
+    scripts/evgen_job_dispatcher.py, run_event_service), PanDA's credited
+    events for the job and the events the canary offered. The harness ended
+    cleanly, no unit failed, every close stands registered, the closes hold
+    every event offered, PanDA credited every one, and the closes' files are
+    available in the catalog."""
+    closes = es.get('closes') or []
+    registered = [c for c in closes if c.get('outcome') == 'registered']
+    closed = sum(int(c.get('events') or 0) for c in registered)
+    done, failed = es.get('done_count'), es.get('failed_count')
+    rc = es.get('harness_rc')
+    checks = [
+        {'check': 'harness', 'ok': rc == 0, 'detail': f'exit {rc}'},
+        {'check': 'units', 'ok': bool(done) and failed == 0,
+         'detail': f'{done} done, {failed} failed'},
+        {'check': 'closes', 'ok': bool(closes) and len(registered) == len(closes),
+         'detail': f'{len(registered)} of {len(closes)} registered'},
+        {'check': 'events_closed', 'ok': closed == offered,
+         'detail': f'{closed} closed of {offered} offered'},
+        {'check': 'events_credited', 'ok': credited == offered,
+         'detail': f'{credited} credited of {offered} offered'},
+    ]
+    dids = [c['did'] for c in registered if c.get('did')]
+    available = _did_available(dids)
+    checks.append({'check': 'output_available',
+                   'ok': available if available is not None else None,
+                   'detail': (f'{len(dids)} files' if dids else 'no file registered')
+                             + ('' if available is not None else ' (not verified)')})
+    return checks, _verdict(checks)
+
+
+def _collect_es(run_row, job, raw_metadata, data, ProbeRun, counts):
+    """Collect a finished Event Service canary: the harness summary in the
+    job's metadata and PanDA's credited events become its checks and
+    verdict."""
+    import json
+    try:
+        doc = json.loads(raw_metadata) if isinstance(raw_metadata, str) else raw_metadata
+    except (TypeError, ValueError) as e:
+        doc, note = None, f'job metadata is not JSON: {e}'
     else:
-        verdict = {'state': 'healthy', 'reason': 'all checks passed'}
-    return checks, verdict
+        note = 'job metadata carries no harness summary'
+    es = (doc or {}).get('es') if isinstance(doc, dict) else None
+    if not isinstance(es, dict):
+        run_row.status = ProbeRun.Status.FINISHED
+        data['report'] = 'missing'
+        data['collect_note'] = note
+        logger.error('ES canary: task %s job %s finished but %s',
+                     run_row.jeditaskid, job['pandaid'], note)
+        counts['finished'] += 1
+    else:
+        offered = int(data['es_events'])
+        credited = int(job.get('nevents') or 0)
+        checks, verdict = es_verdict(es, credited, offered)
+        registered = [c for c in es.get('closes') or [] if c.get('outcome') == 'registered']
+        data.update({
+            'report': 'collected',
+            'payload_version': doc.get('payload_version') or '',
+            'events_processed': credited,
+            'requested_events': offered,
+            'es': {k: es.get(k) for k in ('slots', 'wall_s', 'harness_rc', 'done_count',
+                                          'failed_count', 'untaken_at_deadline')},
+            'closes': len(es.get('closes') or []),
+            'dids': [c['did'] for c in registered if c.get('did')],
+            'checks': checks,
+            'verdict': verdict,
+        })
+        run_row.status = ProbeRun.Status.COLLECTED
+        counts['collected'] += 1
+    run_row.data = data
+    run_row.save(update_fields=['status', 'data', 'modified_at'])
 
 
 def _collect_payload(run_row, job, raw_metadata, data, ProbeRun, counts):
@@ -526,7 +617,7 @@ JOB_COLUMNS = (
     'exeerrorcode', 'exeerrordiag', 'piloterrorcode', 'piloterrordiag',
     'taskbuffererrorcode', 'taskbuffererrordiag',
     'ddmerrorcode', 'ddmerrordiag', 'transexitcode', 'jobmetrics',
-    'maxrss', 'maxpss', 'minramcount',
+    'maxrss', 'maxpss', 'minramcount', 'nevents',
 )
 TERMINAL_JOB_STATES = ('finished', 'failed', 'cancelled', 'closed')
 FAILED_TASK_STATES = ('failed', 'aborted', 'broken', 'exhausted')
@@ -782,6 +873,10 @@ def _collect_one(run_row, jobs, tasks, metadata, ingest_report, IngestError,
         return
 
     if job['jobstatus'] == 'finished':
+        if data.get('kind') == 'payload' and data.get('es_events'):
+            _collect_es(run_row, job, metadata.get(job['pandaid']),
+                        data, ProbeRun, counts)
+            return
         if data.get('kind') == 'payload':
             _collect_payload(run_row, job, metadata.get(job['pandaid']),
                              data, ProbeRun, counts)

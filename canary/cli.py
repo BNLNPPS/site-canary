@@ -135,7 +135,8 @@ def cmd_payload_canary(args):
         pandaid=args.pandaid, container=args.container,
         request_id=args.request_id, threads=args.threads,
         payload_ref=args.payload_ref, switches=args.switch,
-        credential=args.credential, sender=args.sender)
+        credential=args.credential, sender=args.sender,
+        es_events=args.es_events)
     if args.json:
         print(json.dumps(result, indent=2))
     else:
@@ -255,6 +256,10 @@ def main(argv=None):
                            help='this exact manifest row '
                                 '(file,ext,nevents,ichunk) instead of one '
                                 "of the task's: a crashed job's row")
+    p_payload.add_argument('--es-events', type=int, default=0,
+                           help='an Event Service canary over this many of '
+                                "the task's events (a feeder's gun sample) "
+                                "in the queue's production shape")
     p_payload.add_argument('--mem-limit-mb', type=int, default=0,
                            help='an address-space limit on the payload, MB')
     p_payload.add_argument('--signature', default='',

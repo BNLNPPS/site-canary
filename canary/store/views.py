@@ -100,10 +100,12 @@ def _probe_api_user(request):
     return None
 
 
-def _apply_probe_config(queue, action, interval_raw, payload_task=None):
+def _apply_probe_config(queue, action, interval_raw, payload_task=None, es_events=None):
     """Set the queue's probe block; returns an error message or ''.
     ``payload_task`` names the PCS task whose payload canary is this
-    queue's scheduled probe (empty: a landing probe; None: unchanged)."""
+    queue's scheduled probe (empty: a landing probe; None: unchanged);
+    ``es_events`` makes that canary an Event Service job over so many of
+    the task's events (0: a one-row canary; None: unchanged)."""
     from canary.probe import closed_queue_reason
     reason = closed_queue_reason(queue.name)
     if action != 'disable' and reason:
@@ -116,6 +118,17 @@ def _apply_probe_config(queue, action, interval_raw, payload_task=None):
         block['enabled'] = True
         if payload_task is not None:
             block['payload_task'] = str(payload_task or '').strip()
+        if es_events is not None:
+            try:
+                es_events = int(es_events)
+            except (TypeError, ValueError):
+                return 'Event Service events must be a whole number.'
+            if es_events < 0:
+                return 'Event Service events cannot be negative.'
+            if es_events:
+                block['es_events'] = es_events
+            else:
+                block.pop('es_events', None)
         try:
             interval = float(interval_raw or 24)
         except (TypeError, ValueError):

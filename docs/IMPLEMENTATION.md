@@ -364,12 +364,24 @@ probe: the probe block names the PCS task (`payload_task`), set from
 the probes page beside the interval. The dispatch then submits a
 payload canary of that task on the interval, its payload runs anchor
 the queue's schedule and its last verdict is the queue's probe health;
-the queue's landing runs, if any, are history. A payload canary runs on
-one core; on a whole-node queue such as `NERSC_Perlmutter_epic_es` it
-holds a node for that core's work and runs once a day (swf-epicprod
-docs/NERSC_PERLMUTTER.md, Payload canaries and probes).
+the queue's landing runs, if any, are history.
 `scripts/canary-probe-config.py` in swf-monitor makes the probes page's
-Save and Disable writes from a session.
+Save and Disable writes from a session, and sets `es_events`.
+
+A payload canary runs on one core. On a whole-node queue the probe
+block's `es_events` makes it an Event Service job (`--es-events` on the
+CLI, `--canary-es-events` on the submit doer): that many events of the
+named task, a feeder's particle-gun sample, in the queue's production
+shape as its feeder submits it (swf-epicprod
+`production_es.canary_settings`), on the whole node, one job and one
+attempt, its closes registered into the expiring canary dataset. Its
+verdict is a checklist read from the harness summary the job report
+carries under `es` and from PanDA's credited events for the job: the
+harness exit, the units done and failed, every close registered, the
+events closed and the events credited against those offered, and the
+closes' files available in the catalog. `NERSC_Perlmutter_epic_es` runs
+one daily (swf-epicprod docs/NERSC_PERLMUTTER.md, Payload canaries and
+probes).
 
 ## Node guard
 
