@@ -365,9 +365,9 @@ the probes page beside the interval. The dispatch then submits a
 payload canary of that task on the interval, its payload runs anchor
 the queue's schedule and its last verdict is the queue's probe health;
 the queue's landing runs, if any, are history. A payload canary runs on
-one core, so a whole-node queue such as `NERSC_Perlmutter_epic_es`
-carries none (swf-epicprod docs/NERSC_PERLMUTTER.md, Payload canaries and
-probes).
+one core; on a whole-node queue such as `NERSC_Perlmutter_epic_es` it
+holds a node for that core's work and runs once a day (swf-epicprod
+docs/NERSC_PERLMUTTER.md, Payload canaries and probes).
 `scripts/canary-probe-config.py` in swf-monitor makes the probes page's
 Save and Disable writes from a session.
 
